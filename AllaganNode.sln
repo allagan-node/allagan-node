@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.29215.179
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganNode", "AllaganNode\AllaganNode.csproj", "{E852540E-5B50-4150-8532-3F61CBA700A8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {F757272C-D238-4934-8967-B13FDB0E5B69}
+	EndGlobalSection
+EndGlobal
