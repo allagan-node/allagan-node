@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -58,6 +60,43 @@ namespace AllaganNode
         public short CheckDigit;
 
         public Dictionary<ushort, byte[]> Fields = new Dictionary<ushort, byte[]>();
+
+        public JObject GetJObject()
+        {
+            JObject jObject = new JObject(
+                new JProperty("Key", Key),
+                new JProperty("Offset", Offset),
+                new JProperty("Size", Size),
+                new JProperty("CheckDigit", CheckDigit),
+                new JProperty("Fields", new JArray()));
+
+            JArray jArray = (JArray)jObject["Fields"];
+
+            foreach (ushort fieldKey in Fields.Keys)
+            {
+                jArray.Add(new JObject(
+                    new JProperty("FieldKey", fieldKey),
+                    new JProperty("FieldValue", new UTF8Encoding(false).GetString(Fields[fieldKey])),
+                    new JProperty("FieldRawValue", JsonConvert.SerializeObject(Fields[fieldKey]))));
+            }
+
+            return jObject;
+        }
+
+        public void LoadJObject(JObject jObject)
+        {
+            Key = (int)jObject["Key"];
+            Offset = (int)jObject["Offset"];
+            Size = (int)jObject["Size"];
+            CheckDigit = (short)jObject["CheckDigit"];
+
+            Fields.Clear();
+            JObject[] fields = jObject["Fields"].Select(f => (JObject)f).ToArray();
+            foreach (JObject field in fields)
+            {
+                Fields.Add((ushort)field["FieldKey"], new UTF8Encoding(false).GetBytes((string)field["FieldValue"]));
+            }
+        }
     }
 
     public class SqFile

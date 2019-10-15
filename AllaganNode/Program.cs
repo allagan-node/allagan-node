@@ -1,4 +1,5 @@
 ﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -159,11 +160,19 @@ namespace AllaganNode
                             if (!Directory.Exists(exDatOutDir)) Directory.CreateDirectory(exDatOutDir);
 
                             string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+
                             using (StreamWriter sw = new StreamWriter(exDatOutPath, false))
                             {
-                                sw.Write(JsonConvert.SerializeObject(exDat.Chunks));
-                            }
+                                JArray jArray = new JArray();
 
+                                foreach (ExDChunk chunk in exDat.Chunks.Values)
+                                {
+                                    jArray.Add(chunk.GetJObject());
+                                }
+
+                                sw.Write(jArray.ToString());
+                            }
+                            /*
                             string exDatCsvPath = Path.Combine(exDatOutDir, exDat.LanguageCode + ".csv");
                             using (StreamWriter sw = new StreamWriter(exDatCsvPath, false))
                             {
@@ -180,16 +189,14 @@ namespace AllaganNode
                                     }
                                     sw.WriteLine(line);
                                 }
-                            }
+                            }*/
                         }
                     }
                     break;
 
                 case 1:
-                    Console.Write("Enter lang code to read from: ");
-                    string sourceLangCode = Console.ReadLine().ToLower();
-                    Console.Write("Enter lang code to write to: ");
-                    string targetLangCode = Console.ReadLine().ToLower();
+                    Console.Write("Enter lang codes to repack (separated by comma): ");
+                    string[] targetLangCodes = Console.ReadLine().Split(',');
 
                     string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
                     File.Copy(indexPath, outputIndexPath, true);
@@ -210,37 +217,27 @@ namespace AllaganNode
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                            if (exDat.LanguageCode != targetLangCode) continue;
-
-                            if (exDat.Name == "Aetheryte_0_en.exd" && exDat.Dir == "exd/transport/Aetheryte/0") continue;
+                            if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
 
                             string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
                             if (!Directory.Exists(exDatOutDir)) continue;
 
-                            string sourcePath = Path.Combine(exDatOutDir, sourceLangCode);
-                            if (!File.Exists(sourcePath)) continue;
+                            string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+                            JObject[] jChunks = null;
 
-                            Dictionary<int, ExDChunk> sourceChunks = null;
-                            using (StreamReader sr = new StreamReader(sourcePath))
+                            using (StreamReader sr = new StreamReader(exDatOutPath))
                             {
-                                sourceChunks = JsonConvert.DeserializeObject<Dictionary<int, ExDChunk>>(sr.ReadToEnd());
+                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
                             }
 
-                            bool touched = false;
-                            foreach (ExDChunk sourceChunk in sourceChunks.Values)
-                            {
-                                Report(string.Format("{0} / {1}: {2} - {3}", i, exHeaders.Length, exDat.Name, sourceChunk.Key));
+                            exDat.Chunks.Clear();
 
-                                if (!exDat.Chunks.ContainsKey(sourceChunk.Key)) continue;
-                                foreach (ExHColumn column in exDat.Columns)
-                                {
-                                    if (!sourceChunk.Fields.ContainsKey(column.Offset)) continue;
-                                    if (sourceChunk.Fields[column.Offset] == null || sourceChunk.Fields[column.Offset].Length == 0) continue;
-                                    exDat.Chunks[sourceChunk.Key].Fields[column.Offset] = sourceChunk.Fields[column.Offset];
-                                    touched = true;
-                                }
+                            foreach (JObject jChunk in jChunks)
+                            {
+                                ExDChunk chunk = new ExDChunk();
+                                chunk.LoadJObject(jChunk);
+                                exDat.Chunks.Add(chunk.Key, chunk);
                             }
-                            if (!touched) continue;
 
                             exDat.WriteExD();
                             exDat.WriteData(origDat, ref newDat, index);
@@ -252,6 +249,10 @@ namespace AllaganNode
                     File.WriteAllBytes(outputIndexPath, index);
 
                     UpdateDatHash(outputNewDatPath);
+                    break;
+
+                case 9876:
+
                     break;
             }
         }
