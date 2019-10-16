@@ -76,11 +76,74 @@ namespace AllaganNode
             {
                 jArray.Add(new JObject(
                     new JProperty("FieldKey", fieldKey),
-                    new JProperty("FieldValue", new UTF8Encoding(false).GetString(Fields[fieldKey])),
+                    new JProperty("FieldValue", EncodeField(Fields[fieldKey])),
                     new JProperty("FieldRawValue", JsonConvert.SerializeObject(Fields[fieldKey]))));
             }
 
             return jObject;
+        }
+
+        private JArray EncodeField(byte[] field)
+        {
+            JArray jArray = new JArray();
+
+            while (field.Contains((byte)0x2))
+            {
+                int tagIndex = Array.FindIndex(field, b => b == 0x2);
+
+                if (tagIndex > 0)
+                {
+                    byte[] head = new byte[tagIndex];
+                    Array.Copy(field, 0, head, 0, tagIndex);
+                    jArray.Add(
+                        new JObject(
+                            new JProperty("EntryType", "text"),
+                            new JProperty("EntryValue", new UTF8Encoding(false).GetString(head))));
+                }
+
+                byte[] tagAndRemainder = new byte[field.Length - tagIndex];
+                Array.Copy(field, tagIndex, tagAndRemainder, 0, tagAndRemainder.Length);
+
+                byte lengthType = tagAndRemainder[2];
+                int totalLength = -1;
+
+                if (lengthType < 0xf0)
+                {
+                    totalLength = lengthType +3;
+                }
+                else if (lengthType == 0xf0)
+                {
+                    totalLength  = tagAndRemainder[3] + 5;
+                }
+                else if (lengthType == 0xf2)
+                {
+                    totalLength = (tagAndRemainder[3] << 8) + tagAndRemainder[4] + 6;
+                }
+                else
+                {
+                    throw new Exception();
+                }
+
+                byte[] tag = new byte[totalLength];
+                Array.Copy(tagAndRemainder, 0, tag, 0, totalLength);
+
+                // Process tag
+
+                byte[] remainder = new byte[tagAndRemainder.Length - totalLength];
+                Array.Copy(tagAndRemainder, totalLength, remainder, 0, remainder.Length);
+
+                field = remainder;
+            }
+
+            if (field.Length > 0)
+            {
+                jArray.Add(
+                    new JObject(
+                        new JProperty("EntryType", "text"),
+                        new JProperty("EntryValue", new UTF8Encoding(false).GetString(field))));
+            }
+
+            return jArray;
         }
 
         public void LoadJObject(JObject jObject)

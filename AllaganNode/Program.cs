@@ -152,7 +152,7 @@ namespace AllaganNode
                     {
                         SqFile exHeader = exHeaders[i];
 
-                        Report(string.Format("{0} / {1}: {2}", i.ToString(), exHeaders.Length.ToString(), exHeader.Name));
+                        Report(string.Format("{0} / {1}: {2}/{3}", i.ToString(), exHeaders.Length.ToString(), exHeader.Dir, exHeader.Name));
 
                         foreach (SqFile exDat in exHeader.ExDats)
                         {
@@ -195,6 +195,8 @@ namespace AllaganNode
                     break;
 
                 case 1:
+                    int test = 0;
+
                     Console.Write("Enter lang codes to repack (separated by comma): ");
                     string[] targetLangCodes = Console.ReadLine().Split(',');
 
@@ -215,7 +217,7 @@ namespace AllaganNode
 
                         foreach (SqFile exDat in exHeader.ExDats)
                         {
-                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+                            Report(string.Format("{0} / {1}: {2}/{3}", i, exHeaders.Length, exDat.Dir, exDat.Name));
 
                             if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
 
@@ -230,13 +232,29 @@ namespace AllaganNode
                                 jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
                             }
 
-                            exDat.Chunks.Clear();
-
                             foreach (JObject jChunk in jChunks)
                             {
                                 ExDChunk chunk = new ExDChunk();
                                 chunk.LoadJObject(jChunk);
-                                exDat.Chunks.Add(chunk.Key, chunk);
+
+                                if (!exDat.Chunks.ContainsKey(chunk.Key)) throw new Exception();
+                                
+                                foreach (ushort fieldKey in chunk.Fields.Keys)
+                                {
+                                    if (!exDat.Chunks[chunk.Key].Fields.ContainsKey(fieldKey)) throw new Exception();
+
+                                    byte[] read = chunk.Fields[fieldKey];
+                                    byte[] orig = exDat.Chunks[chunk.Key].Fields[fieldKey];
+                                    
+                                    for (int j = 0; j < orig.Length; j++)
+                                    {
+                                        if (orig[j] == 0x2 && (j + 1) < orig.Length && orig[j+1] == 0x8)
+                                        {
+                                            File.WriteAllBytes(@"C:\Users\486238\Desktop\test\" + test, orig);
+                                            test++;
+                                        }
+                                    }
+                                }
                             }
 
                             exDat.WriteExD();
