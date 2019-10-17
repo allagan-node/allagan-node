@@ -74,76 +74,146 @@ namespace AllaganNode
 
             foreach (ushort fieldKey in Fields.Keys)
             {
+                JArray entryArray = new JArray();
+                DecodeField(Fields[fieldKey], entryArray);
+
                 jArray.Add(new JObject(
                     new JProperty("FieldKey", fieldKey),
-                    new JProperty("FieldValue", EncodeField(Fields[fieldKey])),
-                    new JProperty("FieldRawValue", JsonConvert.SerializeObject(Fields[fieldKey]))));
+                    new JProperty("FieldValue", entryArray),
+                    new JProperty("FieldRawValue", Fields[fieldKey])));
             }
 
             return jObject;
         }
 
-        private JArray EncodeField(byte[] field)
+        private void DecodeField(byte[] field, JArray jArray)
         {
-            JArray jArray = new JArray();
+            if (field.Length == 0) return;
 
-            while (field.Contains((byte)0x2))
+            // If no tags, just encode it with UTF8.
+            if (!field.Contains((byte)0x2))
+            {
+                jArray.Add(new JObject(
+                    new JProperty("EntryType", "text"),
+                    new JProperty("EntryValue", new UTF8Encoding(false).GetString(field))));
+            }
+            else
             {
                 int tagIndex = Array.FindIndex(field, b => b == 0x2);
 
-                if (tagIndex > 0)
+                // If start byte is opening of tag, treat it as tag.
+                if (tagIndex == 0)
+                {
+                    DecodeTag(field, jArray);
+                }
+                // Divide text part and tag part.
+                else
                 {
                     byte[] head = new byte[tagIndex];
                     Array.Copy(field, 0, head, 0, tagIndex);
-                    jArray.Add(
-                        new JObject(
-                            new JProperty("EntryType", "text"),
-                            new JProperty("EntryValue", new UTF8Encoding(false).GetString(head))));
+
+                    byte[] tag = new byte[field.Length - tagIndex];
+                    Array.Copy(field, tagIndex, tag, 0, tag.Length);
+
+                    DecodeField(head, jArray);
+                    DecodeTag(tag, jArray);
                 }
+            }
+        }
 
-                byte[] tagAndRemainder = new byte[field.Length - tagIndex];
-                Array.Copy(field, tagIndex, tagAndRemainder, 0, tagAndRemainder.Length);
+        private void DecodeTag(byte[] tag, JArray jArray)
+        {
+            if (tag.Length == 0) return;
 
-                byte lengthType = tagAndRemainder[2];
+            // If start byte is not opening of tag, treat it as field.
+            if (tag[0] != 0x2)
+            {
+                DecodeField(tag, jArray);
+            }
+            else
+            {
+                // [0] -> 0x2 (opening of tag)
+                // [1] -> byte (type of tag)
+                // [2] -> byte (type of length)
+                // [..] -> length data (depending on type of length)
+                // [..length..] -> data
+                // [last] -> 0x3 (closing of tag)
+
+                byte lengthType = tag[2];
                 int totalLength = -1;
+                byte[] tagData = null;
 
                 if (lengthType < 0xf0)
                 {
-                    totalLength = lengthType +3;
+                    // length type itself is a length, including the length type byte itself.
+                    // total length -> [0] + [1] + (length type = [2...data...]) + [last]
+                    totalLength = lengthType + 3;
+                    tagData = new byte[lengthType - 1];
+                    Array.Copy(tag, 3, tagData, 0, lengthType - 1);
                 }
                 else if (lengthType == 0xf0)
                 {
-                    totalLength  = tagAndRemainder[3] + 5;
+                    // trailing byte is the length.
+                    // total length -> [0] + [1] + [2] + [length byte] + (length byte = [...data...]) + [last]
+                    totalLength = tag[3] + 5;
+                    tagData = new byte[tag[3]];
+                    Array.Copy(tag, 4, tagData, 0, tag[3]);
+                }
+                else if (lengthType == 0xf1)
+                {
+                    // trailing byte * 256 is the length.
+                    // total length -> [0] + [1] + [2] + [length byte] + (length byte * 256 = [...data...]) + [last]
+                    totalLength = (tag[3] * 256) + 5;
+                    tagData = new byte[tag[3] * 256];
+                    Array.Copy(tag, 4, tagData, 0, tag[3] * 256);
                 }
                 else if (lengthType == 0xf2)
                 {
-                    totalLength = (tagAndRemainder[3] << 8) + tagAndRemainder[4] + 6;
+                    // (trailing byte << 8) + (next byte) is the length. (int16)
+                    // total length -> [0] + [1] + [2] + [l1] + [l2] + ([...data...]) + [last]
+                    int dataLength = (tag[3] << 8) + tag[4];
+                    totalLength = dataLength + 6;
+                    tagData = new byte[dataLength];
+                    Array.Copy(tag, 5, tagData, 0, dataLength);
                 }
-                else
+                else if (lengthType == 0xf3)
                 {
-                    throw new Exception();
+                    // (trailing byte << 16) + (next byte << 8) + (next byte) is the length. (int24)
+                    // total length -> [0] + [1] + [2] + [l1] + [l2] + [l3] + ([...data...]) + [last]
+                    int dataLength = (tag[3] << 16) + (tag[4] << 8) + tag[5];
+                    totalLength = dataLength + 7;
+                    tagData = new byte[dataLength];
+                    Array.Copy(tag, 6, tagData, 0, dataLength);
                 }
+                else if (lengthType == 0xf4)
+                {
+                    // (trailing byte << 24) + (next byte << 16) + (next byte << 8) + (next byte) is the length. (int32)
+                    // total length -> [0] + [1] + [2] + [l1] + [l2] + [l3] + [l4] + ([...data...]) + [last]
+                    int dataLength = (tag[3] << 24) + (tag[4] << 16) + (tag[5] << 8) + tag[6];
+                    totalLength = dataLength + 8;
+                    tagData = new byte[dataLength];
+                    Array.Copy(tag, 7, tagData, 0, dataLength);
+                }
+                else throw new Exception();
 
-                byte[] tag = new byte[totalLength];
-                Array.Copy(tagAndRemainder, 0, tag, 0, totalLength);
+                // Check tag closing byte.
+                if (tag[totalLength - 1] != 0x3) throw new Exception();
 
-                // Process tag
+                jArray.Add(CreateTagJObject(tag[1], tagData));
 
-                byte[] remainder = new byte[tagAndRemainder.Length - totalLength];
-                Array.Copy(tagAndRemainder, totalLength, remainder, 0, remainder.Length);
-
-                field = remainder;
+                byte[] field = new byte[tag.Length - totalLength];
+                Array.Copy(tag, totalLength, field, 0, field.Length);
+                DecodeField(field, jArray);
             }
+        }
 
-            if (field.Length > 0)
-            {
-                jArray.Add(
-                    new JObject(
-                        new JProperty("EntryType", "text"),
-                        new JProperty("EntryValue", new UTF8Encoding(false).GetString(field))));
-            }
-
-            return jArray;
+        private JObject CreateTagJObject(byte tagType, byte[] tagData)
+        {
+            return new JObject(
+                new JProperty("EntryType", "tag"),
+                new JProperty("EntryValue", new JObject(
+                    new JProperty("TagType", tagType),
+                    new JProperty("TagValue", tagData))));
         }
 
         public void LoadJObject(JObject jObject)
