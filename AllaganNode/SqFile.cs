@@ -75,7 +75,7 @@ namespace AllaganNode
             foreach (ushort fieldKey in Fields.Keys)
             {
                 JArray entryArray = new JArray();
-                DecodeField(Fields[fieldKey], entryArray);
+                EncodeField(Fields[fieldKey], entryArray);
 
                 jArray.Add(new JObject(
                     new JProperty("FieldKey", fieldKey),
@@ -86,11 +86,12 @@ namespace AllaganNode
             return jObject;
         }
 
-        private void DecodeField(byte[] field, JArray jArray)
+        // encode bytes into legible json field object.
+        private void EncodeField(byte[] field, JArray jArray)
         {
             if (field.Length == 0) return;
 
-            // If no tags, just encode it with UTF8.
+            // if no tags, just encode it with UTF8.
             if (!field.Contains((byte)0x2))
             {
                 jArray.Add(new JObject(
@@ -101,12 +102,12 @@ namespace AllaganNode
             {
                 int tagIndex = Array.FindIndex(field, b => b == 0x2);
 
-                // If start byte is opening of tag, treat it as tag.
+                // if start byte is opening of tag, treat it as tag.
                 if (tagIndex == 0)
                 {
-                    DecodeTag(field, jArray);
+                    EncodeTag(field, jArray);
                 }
-                // Divide text part and tag part.
+                // divide text part and tag part.
                 else
                 {
                     byte[] head = new byte[tagIndex];
@@ -115,20 +116,21 @@ namespace AllaganNode
                     byte[] tag = new byte[field.Length - tagIndex];
                     Array.Copy(field, tagIndex, tag, 0, tag.Length);
 
-                    DecodeField(head, jArray);
-                    DecodeTag(tag, jArray);
+                    EncodeField(head, jArray);
+                    EncodeTag(tag, jArray);
                 }
             }
         }
 
-        private void DecodeTag(byte[] tag, JArray jArray)
+        // encode bytes into legible json tag object.
+        private void EncodeTag(byte[] tag, JArray jArray)
         {
             if (tag.Length == 0) return;
 
-            // If start byte is not opening of tag, treat it as field.
+            // if start byte is not opening of tag, treat it as field.
             if (tag[0] != 0x2)
             {
-                DecodeField(tag, jArray);
+                EncodeField(tag, jArray);
             }
             else
             {
@@ -140,8 +142,8 @@ namespace AllaganNode
                 // [last] -> 0x3 (closing of tag)
 
                 byte lengthType = tag[2];
-                int totalLength = -1;
-                byte[] tagData = null;
+                int totalLength;
+                byte[] tagData;
 
                 if (lengthType < 0xf0)
                 {
@@ -196,19 +198,20 @@ namespace AllaganNode
                 }
                 else throw new Exception();
 
-                // Check tag closing byte.
+                // check tag closing byte.
                 if (tag[totalLength - 1] != 0x3) throw new Exception();
 
                 jArray.Add(CreateTagJObject(tag[1], tagData));
 
                 byte[] field = new byte[tag.Length - totalLength];
                 Array.Copy(tag, totalLength, field, 0, field.Length);
-                DecodeField(field, jArray);
+                EncodeField(field, jArray);
             }
         }
 
         private JObject CreateTagJObject(byte tagType, byte[] tagData)
         {
+            // TODO: recursive decoding inside tag for 0xff decoding byte.
             return new JObject(
                 new JProperty("EntryType", "tag"),
                 new JProperty("EntryValue", new JObject(
@@ -227,6 +230,33 @@ namespace AllaganNode
             JObject[] fields = jObject["Fields"].Select(f => (JObject)f).ToArray();
             foreach (JObject field in fields)
             {
+                ushort fieldKey = (ushort)field["FieldKey"];
+                JObject[] entries = field["FieldValue"].Select(e => (JObject)e).ToArray();
+                byte[] bField = new byte[0];
+
+                foreach (JObject entry in entries)
+                {
+                    byte[] decoded;
+                    string entryType = (string)entry["EntryType"];
+
+                    if (entryType == "text")
+                    {
+                        decoded = new UTF8Encoding(false).GetBytes((string)entry["EntryValue"]);
+                    }
+                    else if (entryType == "tag")
+                    {
+                        JObject tagObject = (JObject)entry["EntryValue"];
+
+                        // leading 0s are denoted as . for easier legibility.
+                        // 0x00 ~ 0xef -> 0x .. .. .. .0 ~ 0x .. .. .. ef
+                        // 0xf0        -> 0x .. .. .. f0 ~ 0x .. .. .. ff
+                        // 0xf1        -> 0x .. .. .1 00 ~ 0x .. .. ff 00 <- (last byte = 0)
+                        // 0xf2        -> 0x .. .. .1 01 ~ 0x .. .. ff ff <- (last byte != 0)
+                        // 0xf3        -> 0x .. .1 00 00 ~ 0x .. ff ff ff
+                        // 0xf4        -> 0x .1 00 00 00 ~ 0x ff ff ff ff
+                    }
+                }
+
                 Fields.Add((ushort)field["FieldKey"], new UTF8Encoding(false).GetBytes((string)field["FieldValue"]));
             }
         }
@@ -236,6 +266,8 @@ namespace AllaganNode
     {
         public uint Key;
         public uint DirectoryKey;
+
+        // [...][2,1,0] -> last three bytes denote the datnum (i.e. dat0, dat1...), rest of the bytes denote offset.
         public int WrappedOffset;
         public byte DatFile
         {
@@ -263,8 +295,13 @@ namespace AllaganNode
         }
         public byte[] Data;
 
+        // full file name.
         public string Name;
+
+        // full directory.
         public string Dir;
+
+        // for ExHs.
         public ushort Variant;
         public ushort FixedSizeDataLength;
         public ExHColumn[] Columns;
@@ -272,10 +309,11 @@ namespace AllaganNode
         public ExHLanguage[] Languages;
         public List<SqFile> ExDats = new List<SqFile>();
 
+        // for ExDs.
         public string LanguageCode;
-
         public Dictionary<int, ExDChunk> Chunks = new Dictionary<int, ExDChunk>();
 
+        // read data blocks and uncompress them.
         public void ReadData(string datPath)
         {
             using (FileStream fs = File.OpenRead(datPath))
@@ -288,8 +326,10 @@ namespace AllaganNode
                 br.BaseStream.Position = Offset;
                 br.Read(header, 0, endOfHeader);
 
+                // 4th byte denotes the type of data, which should be 2 for binary files.
                 if (BitConverter.ToInt32(header, 0x4) != 2) return;
 
+                // supposed to be the total stream size... but not validating at the moment.
                 long length = BitConverter.ToInt32(header, 0x10) * 0x80;
                 short blockCount = BitConverter.ToInt16(header, 0x14);
 
@@ -297,24 +337,31 @@ namespace AllaganNode
                 {
                     for (int i = 0; i < blockCount; i++)
                     {
+                        // read where the block is from the header.
                         int blockOffset = BitConverter.ToInt32(header, 0x18 + i * 0x8);
 
+                        // read the actual header of the block. Always 10 bytes.
                         byte[] blockHeader = new byte[0x10];
                         br.BaseStream.Position = Offset + endOfHeader + blockOffset;
                         br.Read(blockHeader, 0, 0x10);
 
+                        // source size -> size the block is actually taking up in this dat file.
+                        // raw size -> size before compression (if compressed)
                         int sourceSize = BitConverter.ToInt32(blockHeader, 0x8);
                         int rawSize = BitConverter.ToInt32(blockHeader, 0xc);
 
+                        // compression threhsold = 0x7d00
                         bool isCompressed = sourceSize < 0x7d00;
                         int actualSize = isCompressed ? sourceSize : rawSize;
 
+                        // block is padded to be divisible by 0x80
                         int paddingLeftover = (actualSize + 0x10) % 0x80;
                         if (isCompressed && paddingLeftover != 0)
                         {
                             actualSize += 0x80 - paddingLeftover;
                         }
 
+                        // copy over the block from dat.
                         byte[] blockBuffer = new byte[actualSize];
                         br.Read(blockBuffer, 0, actualSize);
 
@@ -337,6 +384,7 @@ namespace AllaganNode
             }
         }
 
+        // write current Data buffer to new dat (.dat1) and update the offset in .index
         public void WriteData(byte[] origDat, ref byte[] newDat, byte[] index)
         {
             int endOfHeader = BitConverter.ToInt32(origDat, Offset);
@@ -344,6 +392,7 @@ namespace AllaganNode
             byte[] header = new byte[endOfHeader];
             Array.Copy(origDat, Offset, header, 0, endOfHeader);
 
+            // divide up data to blocks with max size 0x3e80
             List<byte[]> blocks = new List<byte[]>();
             int position = 0;
             while (position < Data.Length)
@@ -356,6 +405,10 @@ namespace AllaganNode
                 position += blockLength;
             }
 
+            // new header ->
+            //     first 18 bytes will be existing information (like total length, etc) that will be later updated.
+            //     rest will be 8 byte each for offset information for blocks.
+            //     pad header to be divisible by 0x80
             int newHeaderLength = 0x18 + blocks.Count * 0x8;
             int newHeaderPaddingLeftover = newHeaderLength % 0x80;
             if (newHeaderPaddingLeftover != 0)
@@ -383,6 +436,8 @@ namespace AllaganNode
                     compressedBlock = ms.ToArray();
                 }
 
+                // record compressed size that will be written to the dat file.
+                // actual size will be padded so that it's divisible by 0x80
                 int sourceSize = compressedBlock.Length;
                 int actualSize = compressedBlock.Length;
                 int paddingLeftover = (actualSize + 0x10) % 0x80;
@@ -392,12 +447,14 @@ namespace AllaganNode
                 }
                 Array.Resize(ref compressedBlock, actualSize);
 
+                // write the block offset to the new header first, along with size information.
                 int currentHeaderPosition = 0x18 + i * 0x8;
                 int currentDataPosition = newBlocks.Length;
                 Array.Copy(BitConverter.GetBytes(currentDataPosition), 0, newHeader, currentHeaderPosition, 0x4);
                 Array.Copy(BitConverter.GetBytes((short)(actualSize + 0x10)), 0, newHeader, currentHeaderPosition + 0x4, 0x2);
                 Array.Copy(BitConverter.GetBytes((short)blocks[i].Length), 0, newHeader, currentHeaderPosition + 0x6, 0x2);
 
+                // append the block to the data buffer.
                 Array.Resize(ref newBlocks, newBlocks.Length + actualSize + 0x10);
                 Array.Copy(BitConverter.GetBytes(0x10), 0, newBlocks, currentDataPosition, 0x4);
                 Array.Copy(BitConverter.GetBytes(sourceSize), 0, newBlocks, currentDataPosition + 0x8, 0x4);
@@ -405,16 +462,20 @@ namespace AllaganNode
                 Array.Copy(compressedBlock, 0, newBlocks, currentDataPosition + 0x10, compressedBlock.Length);
             }
 
+            // update the offset for the new data and update dat file number to .dat1
             Offset = newDat.Length;
             DatFile = 1;
 
+            // now update the block count and size to the new header.
             Array.Copy(BitConverter.GetBytes(Data.Length), 0, newHeader, 0x8, 0x4);
             Array.Copy(BitConverter.GetBytes(newBlocks.Length / 0x80), 0, newHeader, 0x10, 0x4);
 
+            // append new header and buffered blocks to the new dat file (.dat1)
             Array.Resize(ref newDat, newDat.Length + newHeader.Length + newBlocks.Length);
             Array.Copy(newHeader, 0, newDat, Offset, newHeader.Length);
             Array.Copy(newBlocks, 0, newDat, Offset + newHeader.Length, newBlocks.Length);
 
+            // update the index so it points to our new header.
             int headerOffset = BitConverter.ToInt32(index, 0xc);
             index[headerOffset + 0x50] = 2;
             int fileOffset = BitConverter.ToInt32(index, headerOffset + 0x8);
@@ -432,6 +493,7 @@ namespace AllaganNode
             }
         }
 
+        // decode exh from buffered data.
         public void ReadExH()
         {
             if (Data == null || Data.Length == 0) return;
@@ -475,6 +537,7 @@ namespace AllaganNode
             }
         }
 
+        // decode exd from buffered data.
         public void ReadExD()
         {
             int offsetTableSize = toInt32(Data, 0x8, true);
@@ -519,6 +582,7 @@ namespace AllaganNode
             }
         }
 
+        // write updated exd chunks back to buffer.
         public void WriteExD()
         {
             int offsetTableSize = toInt32(Data, 0x8, true);
@@ -584,6 +648,7 @@ namespace AllaganNode
             Data = newBuffer;
         }
 
+        // utility functions.
         private void checkEndian(ref byte[] data, bool isBigEndian)
         {
             if (isBigEndian == BitConverter.IsLittleEndian)
