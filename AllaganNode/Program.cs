@@ -270,6 +270,18 @@ namespace AllaganNode
                     Console.Write("Enter target lang code: ");
                     string targetLangCode = Console.ReadLine();
 
+                    string emptyPath = Path.Combine(outputDir, "empty");
+                    if (File.Exists(emptyPath)) File.Delete(emptyPath);
+                    JArray emptyArray = new JArray();
+
+                    string unidentifiedPath = Path.Combine(outputDir, "unidentified");
+                    if (File.Exists(unidentifiedPath)) File.Delete(unidentifiedPath);
+                    JArray unidentifiedArray = new JArray();
+
+                    string notTranslatedPath = Path.Combine(outputDir, "not_translated");
+                    if (File.Exists(notTranslatedPath)) File.Delete(notTranslatedPath);
+                    JArray notTranslatedArray = new JArray();
+
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
                         SqFile exHeader = exHeaders[i];
@@ -284,7 +296,13 @@ namespace AllaganNode
                             if (!Directory.Exists(exDatOutDir)) continue;
 
                             string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
-                            if (!File.Exists(exDatOutPath)) continue;
+                            if (!File.Exists(exDatOutPath))
+                            {
+                                notTranslatedArray.Add(new JObject(
+                                    new JProperty("directory", exDat.Dir),
+                                    new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd")))));
+                                continue;
+                            }
 
                             JObject[] jChunks = null;
 
@@ -355,14 +373,47 @@ namespace AllaganNode
                             }
                             else
                             {
-                                string tempPath = Path.Combine(outputDir, "unmapped");
-                                using (StreamWriter sw = new StreamWriter(tempPath, true))
+                                JObject targetJObject = new JObject(
+                                    new JProperty("directory", exDat.Dir),
+                                    new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd"))));
+
+                                bool isEmpty = true;
+
+                                foreach (ExDChunk chunk in exDat.Chunks.Values)
                                 {
-                                    sw.WriteLine(exDat.Dir + "/" + exDat.Name);
+                                    foreach (byte[] field in chunk.Fields.Values)
+                                    {
+                                        if (field.Length > 0) isEmpty = false;
+                                    }
+                                }
+
+                                if (isEmpty)
+                                {
+                                    emptyArray.Add(targetJObject);
+                                }
+                                else
+                                {
+                                    unidentifiedArray.Add(targetJObject);
                                 }
                             }
                         }
                     }
+
+                    using (StreamWriter sw = new StreamWriter(emptyPath, false))
+                    {
+                        sw.Write(emptyArray.ToString());
+                    }
+
+                    using (StreamWriter sw = new StreamWriter(unidentifiedPath, false))
+                    {
+                        sw.Write(unidentifiedArray.ToString());
+                    }
+
+                    using (StreamWriter sw = new StreamWriter(notTranslatedPath, false))
+                    {
+                        sw.Write(notTranslatedArray.ToString());
+                    }
+                    
                     break;
             }
         }
@@ -381,6 +432,7 @@ namespace AllaganNode
             previousLine = line;
         }
 
+        // create a new dat file and copy header from existing dat.
         static void CreateNewDat(string origDatPath, string newDatPath)
         {
             byte[] dat = File.ReadAllBytes(origDatPath);
@@ -390,6 +442,7 @@ namespace AllaganNode
             File.WriteAllBytes(newDatPath, header);
         }
 
+        // update sha1 hashes with appended data.
         static void UpdateDatHash(string datPath)
         {
             byte[] dat = File.ReadAllBytes(datPath);
