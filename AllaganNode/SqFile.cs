@@ -79,8 +79,7 @@ namespace AllaganNode
 
                 jArray.Add(new JObject(
                     new JProperty("FieldKey", fieldKey),
-                    new JProperty("FieldValue", entryArray),
-                    new JProperty("FieldRawValue", Fields[fieldKey])));
+                    new JProperty("FieldValue", entryArray)));
             }
 
             return jObject;
@@ -219,6 +218,7 @@ namespace AllaganNode
                     new JProperty("TagValue", tagData))));
         }
 
+        // load from json
         public void LoadJObject(JObject jObject)
         {
             Key = (int)jObject["Key"];
@@ -236,7 +236,7 @@ namespace AllaganNode
 
                 foreach (JObject entry in entries)
                 {
-                    byte[] decoded;
+                    byte[] decoded = new byte[0];
                     string entryType = (string)entry["EntryType"];
 
                     if (entryType == "text")
@@ -254,10 +254,100 @@ namespace AllaganNode
                         // 0xf2        -> 0x .. .. .1 01 ~ 0x .. .. ff ff <- (last byte != 0)
                         // 0xf3        -> 0x .. .1 00 00 ~ 0x .. ff ff ff
                         // 0xf4        -> 0x .1 00 00 00 ~ 0x ff ff ff ff
+                        byte[] tagData = (byte[])tagObject["TagValue"];
+                        int dataLength = tagData.Length;
+                        
+                        // if data length + length type byte is still smaller than 0xf0
+                        if (dataLength + 1 < 0xf0)
+                        {
+                            // length type itself is a length, including the length type byte itself.
+                            // total length -> [0] + [1] + (length type = [2...data...]) + [last]
+                            byte lengthType = (byte)(dataLength + 1);
+                            int totalLength = lengthType + 3;
+                            Array.Resize(ref decoded, totalLength);
+                            Array.Copy(tagData, 0, decoded, 3, dataLength);
+                            decoded[2] = lengthType;
+                        }
+                        // if data length is 1 byte
+                        else if (dataLength < 0x100)
+                        {
+                            // trailing byte is the length.
+                            // total length -> [0] + [1] + [2] + [length byte] + (length byte = [...data...]) + [last]
+                            Array.Resize(ref decoded, dataLength + 5);
+                            Array.Copy(tagData, 0, decoded, 4, dataLength);
+                            // length type
+                            decoded[2] = 0xf0;
+                            // length byte
+                            decoded[3] = (byte)dataLength;
+                        }
+                        // if data length is 2 byte and last byte is 0
+                        else if (dataLength < 0x10000 && dataLength % 256 == 0)
+                        {
+                            // trailing byte * 256 is the length.
+                            // total length -> [0] + [1] + [2] + [length byte] + (length byte * 256 = [...data...]) + [last]
+                            Array.Resize(ref decoded, dataLength + 5);
+                            Array.Copy(tagData, 0, decoded, 4, dataLength);
+                            // length type
+                            decoded[2] = 0xf1;
+                            // length byte
+                            decoded[3] = (byte)(dataLength / 256);
+                        }
+                        // if data length is 2 byte and last byte is not 0
+                        else if (dataLength < 0x10000)
+                        {
+                            // (trailing byte << 8) + (next byte) is the length. (int16)
+                            // total length -> [0] + [1] + [2] + [l1] + [l2] + ([...data...]) + [last]
+                            Array.Resize(ref decoded, dataLength + 6);
+                            Array.Copy(tagData, 0, decoded, 5, dataLength);
+                            // length type
+                            decoded[2] = 0xf2;
+                            // length bytes
+                            decoded[3] = (byte)(dataLength >> 8);
+                            decoded[4] = (byte)(dataLength & 0xff);
+                        }
+                        // if data length is 3 bytes
+                        else if (dataLength < 0x1000000)
+                        {
+                            // (trailing byte << 16) + (next byte << 8) + (next byte) is the length. (int24)
+                            // total length -> [0] + [1] + [2] + [l1] + [l2] + [l3] + ([...data...]) + [last]
+                            Array.Resize(ref decoded, dataLength + 7);
+                            Array.Copy(tagData, 0, decoded, 6, dataLength);
+                            // length type
+                            decoded[2] = 0xf3;
+                            // length bytes
+                            decoded[3] = (byte)(dataLength >> 16);
+                            decoded[4] = (byte)((dataLength & 0xff00) >> 8);
+                            decoded[5] = (byte)(dataLength & 0xff);
+                        }
+                        // if dat length is 4 bytes
+                        else
+                        {
+                            // (trailing byte << 24) + (next byte << 16) + (next byte << 8) + (next byte) is the length. (int32)
+                            // total length -> [0] + [1] + [2] + [l1] + [l2] + [l3] + [l4] + ([...data...]) + [last]
+                            Array.Resize(ref decoded, dataLength + 8);
+                            Array.Copy(tagData, 0, decoded, 7, dataLength);
+                            // length type
+                            decoded[2] = 0xf4;
+                            // length bytes
+                            decoded[3] = (byte)(dataLength >> 24);
+                            decoded[4] = (byte)((dataLength & 0xff0000) >> 16);
+                            decoded[5] = (byte)((dataLength & 0xff00) >> 8);
+                            decoded[6] = (byte)(dataLength & 0xff);
+                        }
+                        
+                        // set opening, closing and tag type byte.
+                        decoded[0] = 0x2;
+                        decoded[1] = (byte)tagObject["TagType"];
+                        decoded[decoded.Length - 1] = 0x3;
                     }
+
+                    // append and continue.
+                    int curFieldLength = bField.Length;
+                    Array.Resize(ref bField, bField.Length + decoded.Length);
+                    Array.Copy(decoded, 0, bField, curFieldLength, decoded.Length);
                 }
 
-                Fields.Add((ushort)field["FieldKey"], new UTF8Encoding(false).GetBytes((string)field["FieldValue"]));
+                Fields.Add(fieldKey, bField);
             }
         }
     }

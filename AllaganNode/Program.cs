@@ -16,6 +16,7 @@ namespace AllaganNode
         {
             Console.WriteLine(string.Format("AllaganNode v{0}", Assembly.GetExecutingAssembly().GetName().Version.ToString()));
 
+            // TODO: make base path selectable.
             string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
             string indexPath = Path.Combine(baseDir, "input", "0a0000.win32.index");
@@ -28,6 +29,7 @@ namespace AllaganNode
             SqFile rootFile;
             SqFile[] exHeaders;
 
+            // Read index and cache all available sqfiles.
             using (FileStream fs = File.OpenRead(indexPath))
             using (BinaryReader br = new BinaryReader(fs))
             {
@@ -47,6 +49,8 @@ namespace AllaganNode
                     sqFile.WrappedOffset = br.ReadInt32();
                     br.ReadInt32();
 
+                    // uncompress and cache data buffer for all sqfiles.
+                    // TODO: only read required sqfiles.
                     sqFile.ReadData(datPath);
 
                     if (!sqFiles.ContainsKey(sqFile.DirectoryKey)) sqFiles.Add(sqFile.DirectoryKey, new Dictionary<uint, SqFile>());
@@ -56,6 +60,8 @@ namespace AllaganNode
                 }
             }
 
+            // find root file that lists all ExHs in 0a0000.
+            // root file encoding is simple ASCII.
             rootFile = sqFiles[Hash.Compute("exd")][Hash.Compute("root.exl")];
             using (MemoryStream ms = new MemoryStream(rootFile.Data))
             using (StreamReader sr = new StreamReader(ms, Encoding.ASCII))
@@ -78,6 +84,7 @@ namespace AllaganNode
                 }
             }
 
+            // for all ExHs, decode the cached data buffer as ExH.
             for (int i = 0; i < headerNames.Count; i++)
             {
                 Report(string.Format("{0} / {1}: {2}", i, headerNames.Count, headerNames[i]));
@@ -99,6 +106,7 @@ namespace AllaganNode
                 sqFile.ReadExH();
             }
 
+            // only add ExHs with supported variant and string columns.
             List<SqFile> exHeaderList = new List<SqFile>();
             foreach (uint directoryKey in sqFiles.Keys)
             {
@@ -114,6 +122,7 @@ namespace AllaganNode
             }
             exHeaders = exHeaderList.ToArray();
 
+            // for all ExHs, decode child ExDs and link them to ExH.
             for (int i = 0; i < exHeaders.Length; i++)
             {
                 Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exHeaders[i].Name));
@@ -148,11 +157,12 @@ namespace AllaganNode
             switch (int.Parse(Console.ReadLine()))
             {
                 case 0:
+                    // extract all ExDs under cached ExHs.
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
                         SqFile exHeader = exHeaders[i];
 
-                        Report(string.Format("{0} / {1}: {2}/{3}", i.ToString(), exHeaders.Length.ToString(), exHeader.Dir, exHeader.Name));
+                        Report(string.Format("{0} / {1}: {2}", i.ToString(), exHeaders.Length.ToString(), exHeader.Name));
 
                         foreach (SqFile exDat in exHeader.ExDats)
                         {
@@ -195,8 +205,7 @@ namespace AllaganNode
                     break;
 
                 case 1:
-                    int test = 0;
-
+                    // repack only selected lang table from extracted output dir.
                     Console.Write("Enter lang codes to repack (separated by comma): ");
                     string[] targetLangCodes = Console.ReadLine().Split(',');
 
@@ -217,7 +226,7 @@ namespace AllaganNode
 
                         foreach (SqFile exDat in exHeader.ExDats)
                         {
-                            Report(string.Format("{0} / {1}: {2}/{3}", i, exHeaders.Length, exDat.Dir, exDat.Name));
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
                             if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
 
@@ -225,6 +234,8 @@ namespace AllaganNode
                             if (!Directory.Exists(exDatOutDir)) continue;
 
                             string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+                            if (!File.Exists(exDatOutPath)) continue;
+
                             JObject[] jChunks = null;
 
                             using (StreamReader sr = new StreamReader(exDatOutPath))
@@ -234,27 +245,10 @@ namespace AllaganNode
 
                             foreach (JObject jChunk in jChunks)
                             {
-                                ExDChunk chunk = new ExDChunk();
-                                chunk.LoadJObject(jChunk);
+                                int chunkKey = (int)jChunk["Key"];
+                                if (!exDat.Chunks.ContainsKey(chunkKey)) continue;
 
-                                if (!exDat.Chunks.ContainsKey(chunk.Key)) throw new Exception();
-                                
-                                foreach (ushort fieldKey in chunk.Fields.Keys)
-                                {
-                                    if (!exDat.Chunks[chunk.Key].Fields.ContainsKey(fieldKey)) throw new Exception();
-
-                                    byte[] read = chunk.Fields[fieldKey];
-                                    byte[] orig = exDat.Chunks[chunk.Key].Fields[fieldKey];
-                                    
-                                    for (int j = 0; j < orig.Length; j++)
-                                    {
-                                        if (orig[j] == 0x2 && (j + 1) < orig.Length && orig[j+1] == 0x8)
-                                        {
-                                            File.WriteAllBytes(@"C:\Users\486238\Desktop\test\" + test, orig);
-                                            test++;
-                                        }
-                                    }
-                                }
+                                exDat.Chunks[chunkKey].LoadJObject(jChunk);
                             }
 
                             exDat.WriteExD();
@@ -270,7 +264,105 @@ namespace AllaganNode
                     break;
 
                 case 9876:
+                    // swap two lang table based on string key mapping (if available) or chunk key mapping.
+                    Console.Write("Enter source lang code: ");
+                    string sourceLangCode = Console.ReadLine();
+                    Console.Write("Enter target lang code: ");
+                    string targetLangCode = Console.ReadLine();
 
+                    for (int i = 0; i < exHeaders.Length; i++)
+                    {
+                        SqFile exHeader = exHeaders[i];
+
+                        foreach (SqFile exDat in exHeader.ExDats)
+                        {
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                            if (exDat.LanguageCode != targetLangCode) continue;
+
+                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                            if (!Directory.Exists(exDatOutDir)) continue;
+
+                            string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
+                            if (!File.Exists(exDatOutPath)) continue;
+
+                            JObject[] jChunks = null;
+
+                            using (StreamReader sr = new StreamReader(exDatOutPath))
+                            {
+                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
+                            }
+
+                            if (jChunks.Length == 0) continue;
+
+                            // load string key based mapper.
+                            // string key mapper -> field key 0 should be text-only field with all-capital constant (i.e. TEXT_XXX_NNN_SYSTEM_NNN_NN)
+                            Dictionary<string, JObject> mapper = new Dictionary<string, JObject>();
+
+                            foreach (JObject jChunk in jChunks)
+                            {
+                                ExDChunk chunk = new ExDChunk();
+                                chunk.LoadJObject(jChunk);
+                                // string key mapper should have string key on field 0 and text content on field 4.
+                                if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(4) || chunk.Fields.Count != 2) continue;
+
+                                JObject[] jFields = jChunk["Fields"].Select(j => (JObject)j).ToArray();
+                                foreach (JObject jField in jFields)
+                                {
+                                    if ((ushort)jField["FieldKey"] != 0) continue;
+
+                                    JObject[] jEntries = jField["FieldValue"].Select(j => (JObject)j).ToArray();
+
+                                    if (jEntries.Length != 1) continue;
+                                    if ((string)jEntries[0]["EntryType"] != "text") continue;
+
+                                    string stringKey = (string)jEntries[0]["EntryValue"];
+                                    if (stringKey.ToUpper() != stringKey) continue;
+
+                                    // add the key and chunk to the mapper if it looks like string key mapped table.
+                                    if (mapper.ContainsKey(stringKey)) continue;
+                                    mapper.Add(stringKey, jChunk);
+                                }
+                            }
+
+                            // if all rows in the table are string mapped
+                            if (mapper.Count == jChunks.Length)
+                            {
+                                foreach (int chunkKey in exDat.Chunks.Keys)
+                                {
+                                    // find jobject with the same string key.
+                                    string stringKey = new UTF8Encoding(false).GetString(exDat.Chunks[chunkKey].Fields[0]);
+                                    if (!mapper.ContainsKey(stringKey)) continue;
+                                    exDat.Chunks[chunkKey].LoadJObject(mapper[stringKey]);
+
+                                    // preserve the original key.
+                                    exDat.Chunks[chunkKey].Key = chunkKey;
+                                }
+
+                                string newExDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+
+                                using (StreamWriter sw = new StreamWriter(newExDatOutPath, false))
+                                {
+                                    JArray jArray = new JArray();
+
+                                    foreach (ExDChunk chunk in exDat.Chunks.Values)
+                                    {
+                                        jArray.Add(chunk.GetJObject());
+                                    }
+
+                                    sw.Write(jArray.ToString());
+                                }
+                            }
+                            else
+                            {
+                                string tempPath = Path.Combine(outputDir, "unmapped");
+                                using (StreamWriter sw = new StreamWriter(tempPath, true))
+                                {
+                                    sw.WriteLine(exDat.Dir + "/" + exDat.Name);
+                                }
+                            }
+                        }
+                    }
                     break;
             }
         }
