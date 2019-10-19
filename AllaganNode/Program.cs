@@ -7,6 +7,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace AllaganNode
 {
@@ -153,7 +154,7 @@ namespace AllaganNode
             }
 
             Report(string.Empty);
-            Console.Write("Enter an option (0 - extract, 1 - repackage): ");
+            Console.Write("Enter an option (0 - extract, 1 - apply custom texts, 2 - repackage): ");
             switch (int.Parse(Console.ReadLine()))
             {
                 case 0:
@@ -205,6 +206,9 @@ namespace AllaganNode
                     break;
 
                 case 1:
+                    break;
+
+                case 2:
                     // repack only selected lang table from extracted output dir.
                     Console.Write("Enter lang codes to repack (separated by comma): ");
                     string[] targetLangCodes = Console.ReadLine().Split(',');
@@ -263,21 +267,32 @@ namespace AllaganNode
                     UpdateDatHash(outputNewDatPath);
                     break;
 
-                case 9876:
+                    // this hidden option swaps language codes.
+                    // it tries to map entries based on string key if available. if not, it maps based on chunk keys.
+                case 1234:
                     // swap two lang table based on string key mapping (if available) or chunk key mapping.
                     Console.Write("Enter source lang code: ");
                     string sourceLangCode = Console.ReadLine();
                     Console.Write("Enter target lang code: ");
                     string targetLangCode = Console.ReadLine();
 
+                    // placeholder files.
                     string emptyPath = Path.Combine(outputDir, "empty");
                     if (File.Exists(emptyPath)) File.Delete(emptyPath);
                     JArray emptyArray = new JArray();
 
-                    string unidentifiedPath = Path.Combine(outputDir, "unidentified");
-                    if (File.Exists(unidentifiedPath)) File.Delete(unidentifiedPath);
-                    JArray unidentifiedArray = new JArray();
+                    // these files are mapped by string key and is pretty much accurate.
+                    string stringKeyMappedPath = Path.Combine(outputDir, "string_key_mapped");
+                    if (File.Exists(stringKeyMappedPath)) File.Delete(stringKeyMappedPath);
+                    JArray stringKeyMappedArray = new JArray();
 
+                    // these files are mapped by chunk key and could be wrong.
+                    string chunkKeyMappedPath = Path.Combine(outputDir, "chunk_key_mapped");
+                    if (File.Exists(chunkKeyMappedPath)) File.Delete(chunkKeyMappedPath);
+                    JArray chunkKeyMappedArray = new JArray();
+
+                    // these files do not exist in source lang code but exist in target lang code.
+                    // need custom translations.
                     string notTranslatedPath = Path.Combine(outputDir, "not_translated");
                     if (File.Exists(notTranslatedPath)) File.Delete(notTranslatedPath);
                     JArray notTranslatedArray = new JArray();
@@ -292,15 +307,19 @@ namespace AllaganNode
 
                             if (exDat.LanguageCode != targetLangCode) continue;
 
+                            JObject targetJObject = new JObject(
+                                new JProperty("directory", exDat.Dir),
+                                new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd"))));
+
                             string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
                             if (!Directory.Exists(exDatOutDir)) continue;
 
                             string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
+                            // source doesn't exist, which means this is probably newer file.
+                            // need custom translations.
                             if (!File.Exists(exDatOutPath))
                             {
-                                notTranslatedArray.Add(new JObject(
-                                    new JProperty("directory", exDat.Dir),
-                                    new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd")))));
+                                notTranslatedArray.Add(targetJObject);
                                 continue;
                             }
 
@@ -316,6 +335,7 @@ namespace AllaganNode
                             // load string key based mapper.
                             // string key mapper -> field key 0 should be text-only field with all-capital constant (i.e. TEXT_XXX_NNN_SYSTEM_NNN_NN)
                             Dictionary<string, JObject> mapper = new Dictionary<string, JObject>();
+                            Regex stringKeyRegex = new Regex("^[A-Za-z0-9_]+$");
 
                             foreach (JObject jChunk in jChunks)
                             {
@@ -324,23 +344,19 @@ namespace AllaganNode
                                 // string key mapper should have string key on field 0 and text content on field 4.
                                 if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(4) || chunk.Fields.Count != 2) continue;
 
-                                JObject[] jFields = jChunk["Fields"].Select(j => (JObject)j).ToArray();
-                                foreach (JObject jField in jFields)
-                                {
-                                    if ((ushort)jField["FieldKey"] != 0) continue;
+                                JObject stringKeyField = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0);
+                                
+                                // string key should not have any tags and consist of only one text type entry.
+                                JObject[] jEntries = stringKeyField["FieldValue"].Select(j => (JObject)j).ToArray();
+                                if (jEntries.Length != 1) continue;
+                                if ((string)jEntries[0]["EntryType"] != "text") continue;
+                                
+                                // additional validation for string key.
+                                string stringKey = (string)jEntries[0]["EntryValue"];
+                                if (!stringKeyRegex.IsMatch(stringKey)) continue;
+                                if (mapper.ContainsKey(stringKey)) continue;
 
-                                    JObject[] jEntries = jField["FieldValue"].Select(j => (JObject)j).ToArray();
-
-                                    if (jEntries.Length != 1) continue;
-                                    if ((string)jEntries[0]["EntryType"] != "text") continue;
-
-                                    string stringKey = (string)jEntries[0]["EntryValue"];
-                                    if (stringKey.ToUpper() != stringKey) continue;
-
-                                    // add the key and chunk to the mapper if it looks like string key mapped table.
-                                    if (mapper.ContainsKey(stringKey)) continue;
-                                    mapper.Add(stringKey, jChunk);
-                                }
+                                mapper.Add(stringKey, jChunk);
                             }
 
                             // if all rows in the table are string mapped
@@ -370,13 +386,13 @@ namespace AllaganNode
 
                                     sw.Write(jArray.ToString());
                                 }
+
+                                // indicate that this file was mapped by string keys.
+                                stringKeyMappedArray.Add(targetJObject);
                             }
                             else
                             {
-                                JObject targetJObject = new JObject(
-                                    new JProperty("directory", exDat.Dir),
-                                    new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd"))));
-
+                                // let's see if target is empty...
                                 bool isEmpty = true;
 
                                 foreach (ExDChunk chunk in exDat.Chunks.Values)
@@ -387,33 +403,105 @@ namespace AllaganNode
                                     }
                                 }
 
+                                // if target is empty, we don't care about the source.
+                                // record it as empty.
                                 if (isEmpty)
                                 {
                                     emptyArray.Add(targetJObject);
                                 }
                                 else
                                 {
-                                    unidentifiedArray.Add(targetJObject);
+                                    // check whether source is also empty.
+                                    isEmpty = true;
+
+                                    foreach (JObject jChunk in jChunks)
+                                    {
+                                        ExDChunk chunk = new ExDChunk();
+                                        chunk.LoadJObject(jChunk);
+
+                                        foreach (byte[] field in chunk.Fields.Values)
+                                        {
+                                            if (field.Length > 0) isEmpty = false;
+                                        }
+                                    }
+
+                                    // if source is empty, this means no source data is present for this target file.
+                                    // add in not translated list.
+                                    if (isEmpty)
+                                    {
+                                        notTranslatedArray.Add(targetJObject);
+                                    }
+                                    // both are not empty, let's proceed with chunk key mapping...
+                                    else
+                                    {
+                                        foreach (JObject jChunk in jChunks)
+                                        {
+                                            ExDChunk chunk = new ExDChunk();
+                                            chunk.LoadJObject(jChunk);
+
+                                            if (!exDat.Chunks.ContainsKey(chunk.Key)) continue;
+
+                                            foreach (ushort fieldKey in chunk.Fields.Keys)
+                                            {
+                                                // if source field is empty, don't bother changing.
+                                                if (chunk.Fields[fieldKey].Length == 0) continue;
+                                                if (!exDat.Chunks[chunk.Key].Fields.ContainsKey(fieldKey)) continue;
+                                                exDat.Chunks[chunk.Key].Fields[fieldKey] = chunk.Fields[fieldKey];
+                                            }
+                                        }
+
+                                        string newExDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+
+                                        using (StreamWriter sw = new StreamWriter(newExDatOutPath, false))
+                                        {
+                                            JArray jArray = new JArray();
+
+                                            foreach (ExDChunk chunk in exDat.Chunks.Values)
+                                            {
+                                                jArray.Add(chunk.GetJObject());
+                                            }
+
+                                            sw.Write(jArray.ToString());
+                                        }
+
+                                        // indicate that this file was mapped by chunk keys.
+                                        chunkKeyMappedArray.Add(targetJObject);
+                                    }
                                 }
                             }
                         }
                     }
 
+                    // record all arrays.
                     using (StreamWriter sw = new StreamWriter(emptyPath, false))
                     {
                         sw.Write(emptyArray.ToString());
                     }
 
-                    using (StreamWriter sw = new StreamWriter(unidentifiedPath, false))
+                    using (StreamWriter sw = new StreamWriter(stringKeyMappedPath, false))
                     {
-                        sw.Write(unidentifiedArray.ToString());
+                        sw.Write(stringKeyMappedArray.ToString());
+                    }
+
+                    using (StreamWriter sw = new StreamWriter(chunkKeyMappedPath, false))
+                    {
+                        sw.Write(chunkKeyMappedArray.ToString());
                     }
 
                     using (StreamWriter sw = new StreamWriter(notTranslatedPath, false))
                     {
                         sw.Write(notTranslatedArray.ToString());
                     }
-                    
+                    break;
+
+                    // this hidden option is for translators.
+                    // this will compress all available translations that are written in exd.
+                case 91:
+                    break;
+
+                    // this hidden option is for translators.
+                    // this will extract translations from compressed format and place them in exd directory in editable format.
+                case 92:
                     break;
             }
         }
