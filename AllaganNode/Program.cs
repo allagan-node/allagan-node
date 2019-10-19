@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -158,144 +159,38 @@ namespace AllaganNode
             switch (int.Parse(Console.ReadLine()))
             {
                 case 0:
-                    // extract all ExDs under cached ExHs.
-                    for (int i = 0; i < exHeaders.Length; i++)
-                    {
-                        SqFile exHeader = exHeaders[i];
-
-                        Report(string.Format("{0} / {1}: {2}", i.ToString(), exHeaders.Length.ToString(), exHeader.Name));
-
-                        foreach (SqFile exDat in exHeader.ExDats)
-                        {
-                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
-                            if (!Directory.Exists(exDatOutDir)) Directory.CreateDirectory(exDatOutDir);
-
-                            string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
-
-                            using (StreamWriter sw = new StreamWriter(exDatOutPath, false))
-                            {
-                                JArray jArray = new JArray();
-
-                                foreach (ExDChunk chunk in exDat.Chunks.Values)
-                                {
-                                    jArray.Add(chunk.GetJObject());
-                                }
-
-                                sw.Write(jArray.ToString());
-                            }
-                            /*
-                            string exDatCsvPath = Path.Combine(exDatOutDir, exDat.LanguageCode + ".csv");
-                            using (StreamWriter sw = new StreamWriter(exDatCsvPath, false))
-                            {
-                                int[] orderedKeys = exDat.Chunks.Keys.OrderBy(x => x).ToArray();
-                                for (int j = 0; j < orderedKeys.Length; j++)
-                                {
-                                    ExDChunk chunk = exDat.Chunks[orderedKeys[j]];
-                                    string line = chunk.Key + ",";
-                                    ushort[] orderedColumns = chunk.Fields.Keys.OrderBy(x => x).ToArray();
-                                    for (int k = 0; k < orderedColumns.Length; k++)
-                                    {
-                                        byte[] field = chunk.Fields[orderedColumns[k]];
-                                        line += orderedColumns[k] + ",\"" + JsonConvert.SerializeObject(new UTF8Encoding(false).GetString(field));
-                                    }
-                                    sw.WriteLine(line);
-                                }
-                            }*/
-                        }
-                    }
+                    ExtractExDs(exHeaders, outputDir);
                     break;
 
                 case 1:
                     break;
 
                 case 2:
-                    // repack only selected lang table from extracted output dir.
-                    Console.Write("Enter lang codes to repack (separated by comma): ");
-                    string[] targetLangCodes = Console.ReadLine().Split(',');
-
-                    string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
-                    File.Copy(indexPath, outputIndexPath, true);
-                    string outputDatPath = Path.Combine(outputDir, Path.GetFileName(datPath));
-                    File.Copy(datPath, outputDatPath, true);
-                    string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
-                    CreateNewDat(outputDatPath, outputNewDatPath);
-
-                    byte[] origDat = File.ReadAllBytes(outputDatPath);
-                    byte[] newDat = File.ReadAllBytes(outputNewDatPath);
-                    byte[] index = File.ReadAllBytes(outputIndexPath);
-
-                    for (int i = 0; i < exHeaders.Length; i++)
-                    {
-                        SqFile exHeader = exHeaders[i];
-
-                        foreach (SqFile exDat in exHeader.ExDats)
-                        {
-                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
-
-                            if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
-
-                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
-                            if (!Directory.Exists(exDatOutDir)) continue;
-
-                            string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
-                            if (!File.Exists(exDatOutPath)) continue;
-
-                            JObject[] jChunks = null;
-
-                            using (StreamReader sr = new StreamReader(exDatOutPath))
-                            {
-                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
-                            }
-
-                            foreach (JObject jChunk in jChunks)
-                            {
-                                int chunkKey = (int)jChunk["Key"];
-                                if (!exDat.Chunks.ContainsKey(chunkKey)) continue;
-
-                                exDat.Chunks[chunkKey].LoadJObject(jChunk);
-                            }
-
-                            exDat.WriteExD();
-                            exDat.WriteData(origDat, ref newDat, index);
-                        }
-                    }
-
-                    File.WriteAllBytes(outputDatPath, origDat);
-                    File.WriteAllBytes(outputNewDatPath, newDat);
-                    File.WriteAllBytes(outputIndexPath, index);
-
-                    UpdateDatHash(outputNewDatPath);
+                    RepackExDs(exHeaders, outputDir, indexPath, datPath);
                     break;
 
                     // this hidden option swaps language codes.
                     // it tries to map entries based on string key if available. if not, it maps based on chunk keys.
                 case 1234:
-                    // swap two lang table based on string key mapping (if available) or chunk key mapping.
-                    Console.Write("Enter source lang code: ");
-                    string sourceLangCode = Console.ReadLine();
-                    Console.Write("Enter target lang code: ");
-                    string targetLangCode = Console.ReadLine();
+                    SwapCodes(exHeaders, outputDir);
+                    break;
 
-                    // placeholder files.
-                    string emptyPath = Path.Combine(outputDir, "empty");
-                    if (File.Exists(emptyPath)) File.Delete(emptyPath);
-                    JArray emptyArray = new JArray();
+                    // this hidden option is for translators.
+                    // this will compress all available translations that are written in exd.
+                case 91:
+                    CompressTranslations(exHeaders, outputDir);
+                    break;
 
-                    // these files are mapped by string key and is pretty much accurate.
-                    string stringKeyMappedPath = Path.Combine(outputDir, "string_key_mapped");
-                    if (File.Exists(stringKeyMappedPath)) File.Delete(stringKeyMappedPath);
-                    JArray stringKeyMappedArray = new JArray();
+                    // this hidden option is for translators.
+                    // this will extract translations from compressed format and place them in exd directory in editable format.
+                case 92:
+                    ExtractTranslations(exHeaders, outputDir, baseDir);
+                    break;
 
-                    // these files are mapped by chunk key and could be wrong.
-                    string chunkKeyMappedPath = Path.Combine(outputDir, "chunk_key_mapped");
-                    if (File.Exists(chunkKeyMappedPath)) File.Delete(chunkKeyMappedPath);
-                    JArray chunkKeyMappedArray = new JArray();
-
-                    // these files do not exist in source lang code but exist in target lang code.
-                    // need custom translations.
-                    string notTranslatedPath = Path.Combine(outputDir, "not_translated");
-                    if (File.Exists(notTranslatedPath)) File.Delete(notTranslatedPath);
-                    JArray notTranslatedArray = new JArray();
+                    // dev option to find certain string from original input dat...
+                case 93:
+                    string languageCode = Console.ReadLine();
+                    string keyword = Console.ReadLine();
 
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
@@ -305,204 +200,395 @@ namespace AllaganNode
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                            if (exDat.LanguageCode != targetLangCode) continue;
+                            if (exDat.LanguageCode != languageCode) continue;
 
-                            JObject targetJObject = new JObject(
-                                new JProperty("directory", exDat.Dir),
-                                new JProperty("name", exDat.Name.Substring(0, exDat.Name.LastIndexOf(exDat.LanguageCode + ".exd"))));
-
-                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
-                            if (!Directory.Exists(exDatOutDir)) continue;
-
-                            string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
-                            // source doesn't exist, which means this is probably newer file.
-                            // need custom translations.
-                            if (!File.Exists(exDatOutPath))
+                            foreach (ExDChunk chunk in exDat.Chunks.Values)
                             {
-                                notTranslatedArray.Add(targetJObject);
-                                continue;
-                            }
-
-                            JObject[] jChunks = null;
-
-                            using (StreamReader sr = new StreamReader(exDatOutPath))
-                            {
-                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
-                            }
-
-                            if (jChunks.Length == 0) continue;
-
-                            // load string key based mapper.
-                            // string key mapper -> field key 0 should be text-only field with all-capital constant (i.e. TEXT_XXX_NNN_SYSTEM_NNN_NN)
-                            Dictionary<string, JObject> mapper = new Dictionary<string, JObject>();
-                            Regex stringKeyRegex = new Regex("^[A-Za-z0-9_]+$");
-
-                            foreach (JObject jChunk in jChunks)
-                            {
-                                ExDChunk chunk = new ExDChunk();
-                                chunk.LoadJObject(jChunk);
-                                // string key mapper should have string key on field 0 and text content on field 4.
-                                if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(4) || chunk.Fields.Count != 2) continue;
-
-                                JObject stringKeyField = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0);
-                                
-                                // string key should not have any tags and consist of only one text type entry.
-                                JObject[] jEntries = stringKeyField["FieldValue"].Select(j => (JObject)j).ToArray();
-                                if (jEntries.Length != 1) continue;
-                                if ((string)jEntries[0]["EntryType"] != "text") continue;
-                                
-                                // additional validation for string key.
-                                string stringKey = (string)jEntries[0]["EntryValue"];
-                                if (!stringKeyRegex.IsMatch(stringKey)) continue;
-                                if (mapper.ContainsKey(stringKey)) continue;
-
-                                mapper.Add(stringKey, jChunk);
-                            }
-
-                            // if all rows in the table are string mapped
-                            if (mapper.Count == jChunks.Length)
-                            {
-                                foreach (int chunkKey in exDat.Chunks.Keys)
+                                foreach (byte[] field in chunk.Fields.Values)
                                 {
-                                    // find jobject with the same string key.
-                                    string stringKey = new UTF8Encoding(false).GetString(exDat.Chunks[chunkKey].Fields[0]);
-                                    if (!mapper.ContainsKey(stringKey)) continue;
-                                    exDat.Chunks[chunkKey].LoadJObject(mapper[stringKey]);
-
-                                    // preserve the original key.
-                                    exDat.Chunks[chunkKey].Key = chunkKey;
-                                }
-
-                                string newExDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
-
-                                using (StreamWriter sw = new StreamWriter(newExDatOutPath, false))
-                                {
-                                    JArray jArray = new JArray();
-
-                                    foreach (ExDChunk chunk in exDat.Chunks.Values)
+                                    string test = new UTF8Encoding(false).GetString(field);
+                                    if (test.Contains(keyword))
                                     {
-                                        jArray.Add(chunk.GetJObject());
-                                    }
-
-                                    sw.Write(jArray.ToString());
-                                }
-
-                                // indicate that this file was mapped by string keys.
-                                stringKeyMappedArray.Add(targetJObject);
-                            }
-                            else
-                            {
-                                // let's see if target is empty...
-                                bool isEmpty = true;
-
-                                foreach (ExDChunk chunk in exDat.Chunks.Values)
-                                {
-                                    foreach (byte[] field in chunk.Fields.Values)
-                                    {
-                                        if (field.Length > 0) isEmpty = false;
-                                    }
-                                }
-
-                                // if target is empty, we don't care about the source.
-                                // record it as empty.
-                                if (isEmpty)
-                                {
-                                    emptyArray.Add(targetJObject);
-                                }
-                                else
-                                {
-                                    // check whether source is also empty.
-                                    isEmpty = true;
-
-                                    foreach (JObject jChunk in jChunks)
-                                    {
-                                        ExDChunk chunk = new ExDChunk();
-                                        chunk.LoadJObject(jChunk);
-
-                                        foreach (byte[] field in chunk.Fields.Values)
-                                        {
-                                            if (field.Length > 0) isEmpty = false;
-                                        }
-                                    }
-
-                                    // if source is empty, this means no source data is present for this target file.
-                                    // add in not translated list.
-                                    if (isEmpty)
-                                    {
-                                        notTranslatedArray.Add(targetJObject);
-                                    }
-                                    // both are not empty, let's proceed with chunk key mapping...
-                                    else
-                                    {
-                                        foreach (JObject jChunk in jChunks)
-                                        {
-                                            ExDChunk chunk = new ExDChunk();
-                                            chunk.LoadJObject(jChunk);
-
-                                            if (!exDat.Chunks.ContainsKey(chunk.Key)) continue;
-
-                                            foreach (ushort fieldKey in chunk.Fields.Keys)
-                                            {
-                                                // if source field is empty, don't bother changing.
-                                                if (chunk.Fields[fieldKey].Length == 0) continue;
-                                                if (!exDat.Chunks[chunk.Key].Fields.ContainsKey(fieldKey)) continue;
-                                                exDat.Chunks[chunk.Key].Fields[fieldKey] = chunk.Fields[fieldKey];
-                                            }
-                                        }
-
-                                        string newExDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
-
-                                        using (StreamWriter sw = new StreamWriter(newExDatOutPath, false))
-                                        {
-                                            JArray jArray = new JArray();
-
-                                            foreach (ExDChunk chunk in exDat.Chunks.Values)
-                                            {
-                                                jArray.Add(chunk.GetJObject());
-                                            }
-
-                                            sw.Write(jArray.ToString());
-                                        }
-
-                                        // indicate that this file was mapped by chunk keys.
-                                        chunkKeyMappedArray.Add(targetJObject);
+                                        Console.WriteLine(exDat.Dir + "/" + exDat.Name);
                                     }
                                 }
                             }
                         }
                     }
 
-                    // record all arrays.
-                    using (StreamWriter sw = new StreamWriter(emptyPath, false))
-                    {
-                        sw.Write(emptyArray.ToString());
-                    }
-
-                    using (StreamWriter sw = new StreamWriter(stringKeyMappedPath, false))
-                    {
-                        sw.Write(stringKeyMappedArray.ToString());
-                    }
-
-                    using (StreamWriter sw = new StreamWriter(chunkKeyMappedPath, false))
-                    {
-                        sw.Write(chunkKeyMappedArray.ToString());
-                    }
-
-                    using (StreamWriter sw = new StreamWriter(notTranslatedPath, false))
-                    {
-                        sw.Write(notTranslatedArray.ToString());
-                    }
+                    Console.WriteLine("DONE");
+                    Console.ReadLine();
                     break;
+            }
+        }
 
-                    // this hidden option is for translators.
-                    // this will compress all available translations that are written in exd.
-                case 91:
-                    break;
+        static void ExtractExDs(SqFile[] exHeaders, string outputDir)
+        {
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
 
-                    // this hidden option is for translators.
-                    // this will extract translations from compressed format and place them in exd directory in editable format.
-                case 92:
-                    break;
+                Report(string.Format("{0} / {1}: {2}", i.ToString(), exHeaders.Length.ToString(), exHeader.Name));
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    exDat.ExtractExD(outputDir);
+                    /*
+                    string exDatCsvPath = Path.Combine(exDatOutDir, exDat.LanguageCode + ".csv");
+                    using (StreamWriter sw = new StreamWriter(exDatCsvPath, false))
+                    {
+                        int[] orderedKeys = exDat.Chunks.Keys.OrderBy(x => x).ToArray();
+                        for (int j = 0; j < orderedKeys.Length; j++)
+                        {
+                            ExDChunk chunk = exDat.Chunks[orderedKeys[j]];
+                            string line = chunk.Key + ",";
+                            ushort[] orderedColumns = chunk.Fields.Keys.OrderBy(x => x).ToArray();
+                            for (int k = 0; k < orderedColumns.Length; k++)
+                            {
+                                byte[] field = chunk.Fields[orderedColumns[k]];
+                                line += orderedColumns[k] + ",\"" + JsonConvert.SerializeObject(new UTF8Encoding(false).GetString(field));
+                            }
+                            sw.WriteLine(line);
+                        }
+                    }*/
+                }
+            }
+        }
+
+        static void RepackExDs(SqFile[] exHeaders, string outputDir, string indexPath, string datPath)
+        {
+            Console.Write("Enter lang codes to repack (separated by comma): ");
+            string[] targetLangCodes = Console.ReadLine().Split(',');
+
+            string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
+            File.Copy(indexPath, outputIndexPath, true);
+            string outputDatPath = Path.Combine(outputDir, Path.GetFileName(datPath));
+            File.Copy(datPath, outputDatPath, true);
+            string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
+            CreateNewDat(outputDatPath, outputNewDatPath);
+
+            byte[] origDat = File.ReadAllBytes(outputDatPath);
+            byte[] newDat = File.ReadAllBytes(outputNewDatPath);
+            byte[] index = File.ReadAllBytes(outputIndexPath);
+
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                    if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
+
+                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    if (!Directory.Exists(exDatOutDir)) continue;
+
+                    string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+                    if (!File.Exists(exDatOutPath)) continue;
+
+                    JObject[] jChunks = null;
+
+                    using (StreamReader sr = new StreamReader(exDatOutPath))
+                    {
+                        jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
+                    }
+
+                    foreach (JObject jChunk in jChunks)
+                    {
+                        int chunkKey = (int)jChunk["Key"];
+                        if (!exDat.Chunks.ContainsKey(chunkKey)) continue;
+
+                        exDat.Chunks[chunkKey].LoadJObject(jChunk);
+                    }
+
+                    exDat.WriteExD();
+                    exDat.WriteData(origDat, ref newDat, index);
+                }
+            }
+
+            File.WriteAllBytes(outputDatPath, origDat);
+            File.WriteAllBytes(outputNewDatPath, newDat);
+            File.WriteAllBytes(outputIndexPath, index);
+
+            UpdateDatHash(outputNewDatPath);
+        }
+
+        static void SwapCodes(SqFile[] exHeaders, string outputDir)
+        {
+            // swap two lang table based on string key mapping (if available) or chunk key mapping.
+            Console.Write("Enter source lang code: ");
+            string sourceLangCode = Console.ReadLine();
+            Console.Write("Enter target lang code: ");
+            string targetLangCode = Console.ReadLine();
+
+            // placeholder files.
+            string emptyPath = Path.Combine(outputDir, "empty");
+            if (File.Exists(emptyPath)) File.Delete(emptyPath);
+            JArray emptyArray = new JArray();
+
+            // these files are mapped by string key and is pretty much accurate.
+            string stringKeyMappedPath = Path.Combine(outputDir, "string_key_mapped");
+            if (File.Exists(stringKeyMappedPath)) File.Delete(stringKeyMappedPath);
+            JArray stringKeyMappedArray = new JArray();
+
+            // these files are mapped by chunk key and could be wrong.
+            string chunkKeyMappedPath = Path.Combine(outputDir, "chunk_key_mapped");
+            if (File.Exists(chunkKeyMappedPath)) File.Delete(chunkKeyMappedPath);
+            JArray chunkKeyMappedArray = new JArray();
+
+            // these files do not exist in source lang code but exist in target lang code.
+            // need custom translations.
+            string notTranslatedPath = Path.Combine(outputDir, "not_translated");
+            if (File.Exists(notTranslatedPath)) File.Delete(notTranslatedPath);
+            JArray notTranslatedArray = new JArray();
+
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                    if (exDat.LanguageCode != targetLangCode) continue;
+
+                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    if (!Directory.Exists(exDatOutDir)) continue;
+
+                    string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
+                    // source doesn't exist, which means this is probably newer file.
+                    // need custom translations.
+                    if (!File.Exists(exDatOutPath))
+                    {
+                        notTranslatedArray.Add(exDat.Dir);
+                        continue;
+                    }
+
+                    JObject[] jChunks = null;
+
+                    using (StreamReader sr = new StreamReader(exDatOutPath))
+                    {
+                        jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
+                    }
+
+                    if (jChunks.Length == 0) continue;
+
+                    // load string key based mapper.
+                    // string key mapper -> field key 0 should be text-only field with all-capital constant (i.e. TEXT_XXX_NNN_SYSTEM_NNN_NN)
+                    Dictionary<string, JObject> mapper = new Dictionary<string, JObject>();
+                    Regex stringKeyRegex = new Regex("^[A-Za-z0-9_]+$");
+                    List<ExDChunk> exDChunks = new List<ExDChunk>();
+
+                    foreach (JObject jChunk in jChunks)
+                    {
+                        ExDChunk chunk = new ExDChunk();
+                        chunk.LoadJObject(jChunk);
+                        exDChunks.Add(chunk);
+
+                        // string key mapper should have string key on field 0 and text content on field 4.
+                        if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(4) || chunk.Fields.Count != 2) continue;
+
+                        JObject stringKeyField = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0);
+
+                        // string key should not have any tags and consist of only one text type entry.
+                        JObject[] jEntries = stringKeyField["FieldValue"].Select(j => (JObject)j).ToArray();
+                        if (jEntries.Length != 1) continue;
+                        if ((string)jEntries[0]["EntryType"] != "text") continue;
+
+                        // additional validation for string key.
+                        string stringKey = (string)jEntries[0]["EntryValue"];
+                        if (!stringKeyRegex.IsMatch(stringKey)) continue;
+                        if (mapper.ContainsKey(stringKey)) continue;
+
+                        mapper.Add(stringKey, jChunk);
+                    }
+
+                    // if all rows in the table are string mapped
+                    if (mapper.Count == jChunks.Length)
+                    {
+                        foreach (int chunkKey in exDat.Chunks.Keys)
+                        {
+                            // find jobject with the same string key.
+                            string stringKey = new UTF8Encoding(false).GetString(exDat.Chunks[chunkKey].Fields[0]);
+                            if (!mapper.ContainsKey(stringKey)) continue;
+                            exDat.Chunks[chunkKey].LoadJObject(mapper[stringKey]);
+
+                            // preserve the original key.
+                            exDat.Chunks[chunkKey].Key = chunkKey;
+                        }
+
+                        exDat.ExtractExD(outputDir);
+
+                        // indicate that this file was mapped by string keys.
+                        stringKeyMappedArray.Add(exDat.Dir);
+                    }
+                    else
+                    {
+                        // let's see if target is empty...
+                        bool isEmpty = true;
+
+                        foreach (ExDChunk chunk in exDat.Chunks.Values)
+                        {
+                            foreach (byte[] field in chunk.Fields.Values)
+                            {
+                                if (field.Length > 0) isEmpty = false;
+                            }
+                        }
+
+                        // if target is empty, we don't care about the source.
+                        // record it as empty.
+                        if (isEmpty)
+                        {
+                            emptyArray.Add(exDat.Dir);
+                        }
+                        else
+                        {
+                            // check whether source is also empty.
+                            isEmpty = true;
+
+                            foreach (ExDChunk chunk in exDChunks)
+                            {
+                                foreach (byte[] field in chunk.Fields.Values)
+                                {
+                                    if (field.Length > 0) isEmpty = false;
+                                }
+                            }
+
+                            // if source is empty, this means no source data is present for this target file.
+                            // add in not translated list.
+                            if (isEmpty)
+                            {
+                                notTranslatedArray.Add(exDat.Dir);
+                            }
+                            // both are not empty, let's proceed with chunk key mapping...
+                            else
+                            {
+                                foreach (ExDChunk chunk in exDChunks)
+                                {
+                                    if (!exDat.Chunks.ContainsKey(chunk.Key)) continue;
+
+                                    foreach (ushort fieldKey in chunk.Fields.Keys)
+                                    {
+                                        // if source field is empty, don't bother changing.
+                                        if (chunk.Fields[fieldKey].Length == 0) continue;
+                                        if (!exDat.Chunks[chunk.Key].Fields.ContainsKey(fieldKey)) continue;
+                                        exDat.Chunks[chunk.Key].Fields[fieldKey] = chunk.Fields[fieldKey];
+                                    }
+                                }
+
+                                exDat.ExtractExD(outputDir);
+
+                                // indicate that this file was mapped by chunk keys.
+                                chunkKeyMappedArray.Add(exDat.Dir);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // record all arrays.
+            using (StreamWriter sw = new StreamWriter(emptyPath, false))
+            {
+                sw.Write(emptyArray.ToString());
+            }
+
+            using (StreamWriter sw = new StreamWriter(stringKeyMappedPath, false))
+            {
+                sw.Write(stringKeyMappedArray.ToString());
+            }
+
+            using (StreamWriter sw = new StreamWriter(chunkKeyMappedPath, false))
+            {
+                sw.Write(chunkKeyMappedArray.ToString());
+            }
+
+            using (StreamWriter sw = new StreamWriter(notTranslatedPath, false))
+            {
+                sw.Write(notTranslatedArray.ToString());
+            }
+        }
+
+        static void CompressTranslations(SqFile[] exHeaders, string outputDir)
+        {
+            JObject translations = new JObject();
+
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                    if (translations.ContainsKey(exDat.Dir)) continue;
+
+                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    if (!Directory.Exists(exDatOutDir)) continue;
+
+                    string exDatOutPath = Path.Combine(exDatOutDir, "trans");
+                    if (!File.Exists(exDatOutPath)) continue;
+
+                    translations.Add(exDat.Dir, new JValue(File.ReadAllBytes(exDatOutPath)));
+
+                    Console.WriteLine(exDat.Dir);
+                }
+            }
+
+            byte[] bTranslations = new UTF8Encoding().GetBytes(translations.ToString());
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Compress))
+                using (MemoryStream _ms = new MemoryStream(bTranslations))
+                {
+                    _ms.CopyTo(ds);
+                }
+
+                string outputPath = Path.Combine(outputDir, "translations");
+                if (File.Exists(outputPath)) File.Delete(outputPath);
+                File.WriteAllBytes(outputPath, ms.ToArray());
+            }
+
+            Console.WriteLine("DONE");
+            Console.ReadLine();
+        }
+
+        static void ExtractTranslations(SqFile[] exHeaders, string outputDir, string baseDir)
+        {
+            string translationsPath = Path.Combine(baseDir, "input", "translations");
+            if (!File.Exists(translationsPath)) return;
+
+            JObject translations;
+
+            using (MemoryStream ms = new MemoryStream(File.ReadAllBytes(translationsPath)))
+            using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+            {
+                using (MemoryStream _ms = new MemoryStream())
+                {
+                    ds.CopyTo(_ms);
+                    translations = JObject.Parse(new UTF8Encoding().GetString(_ms.ToArray()));
+                }
+            }
+
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                    if (!translations.ContainsKey(exDat.Dir)) continue;
+
+                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    if (!Directory.Exists(exDatOutDir)) Directory.CreateDirectory(exDatOutDir);
+
+                    string transOutPath = Path.Combine(exDatOutDir, "trans");
+                    if (File.Exists(transOutPath)) File.Delete(transOutPath);
+
+                    File.WriteAllBytes(transOutPath, (byte[])translations[exDat.Dir]);
+                }
             }
         }
 

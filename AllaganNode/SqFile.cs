@@ -738,6 +738,28 @@ namespace AllaganNode
             Data = newBuffer;
         }
 
+        // extract exd to external file.
+        public void ExtractExD(string outputDir)
+        {
+            string exDatOutDir = Path.Combine(outputDir, Dir);
+            if (!Directory.Exists(exDatOutDir)) Directory.CreateDirectory(exDatOutDir);
+
+            string exDatOutPath = Path.Combine(exDatOutDir, LanguageCode);
+            if (File.Exists(exDatOutPath)) File.Delete(exDatOutPath);
+
+            using (StreamWriter sw = new StreamWriter(exDatOutPath, false))
+            {
+                JArray jArray = new JArray();
+
+                foreach (ExDChunk chunk in Chunks.Values)
+                {
+                    jArray.Add(chunk.GetJObject());
+                }
+
+                sw.Write(jArray.ToString());
+            }
+        }
+
         // utility functions.
         private void checkEndian(ref byte[] data, bool isBigEndian)
         {
