@@ -155,40 +155,41 @@ namespace AllaganNode
             }
 
             Report(string.Empty);
-            Console.Write("Enter an option (0 - extract, 1 - apply custom texts, 2 - repackage): ");
-            switch (int.Parse(Console.ReadLine()))
+            Console.Write("Enter an option (0 - extract, 1 - apply translations, 2 - repackage): ");
+            switch (Console.ReadLine().ToLower())
             {
-                case 0:
+                case "0":
                     ExtractExDs(exHeaders, outputDir);
                     break;
 
-                case 1:
+                case "1":
+                    ApplyTranslations(exHeaders, outputDir, baseDir);
                     break;
 
-                case 2:
+                case "2":
                     RepackExDs(exHeaders, outputDir, indexPath, datPath);
                     break;
 
                     // this hidden option swaps language codes.
                     // it tries to map entries based on string key if available. if not, it maps based on chunk keys.
-                case 1234:
+                case "swap":
                     SwapCodes(exHeaders, outputDir);
                     break;
 
                     // this hidden option is for translators.
                     // this will compress all available translations that are written in exd.
-                case 91:
+                case "compress":
                     CompressTranslations(exHeaders, outputDir);
                     break;
 
                     // this hidden option is for translators.
                     // this will extract translations from compressed format and place them in exd directory in editable format.
-                case 92:
+                case "decompress":
                     ExtractTranslations(exHeaders, outputDir, baseDir);
                     break;
 
                     // dev option to find certain string from original input dat...
-                case 93:
+                case "search":
                     string languageCode = Console.ReadLine();
                     string keyword = Console.ReadLine();
 
@@ -218,6 +219,121 @@ namespace AllaganNode
 
                     Console.WriteLine("DONE");
                     Console.ReadLine();
+                    break;
+
+                    // dev option for mapping CompleteJournal...
+                case "map_quests":
+                    Dictionary<int, string> englishQuest = new Dictionary<int, string>();
+                    Dictionary<int, string> koreanQuest = new Dictionary<int, string>();
+
+                    for (int i = 0; i < exHeaders.Length; i++)
+                    {
+                        SqFile exHeader = exHeaders[i];
+
+                        foreach (SqFile exDat in exHeader.ExDats)
+                        {
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                            if (exDat.Dir.Substring(0, exDat.Dir.LastIndexOf("/")).ToLower() != "exd/quest") continue;
+                            if (exDat.LanguageCode != "en") continue;
+
+                            foreach (ExDChunk chunk in exDat.Chunks.Values)
+                            {
+                                if (englishQuest.ContainsKey(chunk.Key)) continue;
+                                if (chunk.Fields.Count == 0) continue;
+                                if (!chunk.Fields.ContainsKey(0)) continue;
+
+                                JObject jChunk = chunk.GetJObject();
+                                JObject[] jEntries = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0)["FieldValue"].Select(j => (JObject)j).ToArray();
+
+                                if (jEntries.Length != 1) continue;
+                                if ((string)jEntries[0]["EntryType"] != "text") continue;
+
+                                englishQuest.Add(chunk.Key, (string)jEntries[0]["EntryValue"]);
+                            }
+
+                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                            if (!Directory.Exists(exDatOutDir)) continue;
+
+                            string exDatKoPath = Path.Combine(exDatOutDir, "ko");
+                            if (!File.Exists(exDatKoPath)) continue;
+
+                            JObject[] jChunks;
+
+                            using (StreamReader sr = new StreamReader(exDatKoPath))
+                            {
+                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
+                            }
+
+                            foreach (JObject jChunk in jChunks)
+                            {
+                                ExDChunk chunk = new ExDChunk();
+                                chunk.LoadJObject(jChunk);
+
+                                if (koreanQuest.ContainsKey(chunk.Key)) continue;
+                                if (chunk.Fields.Count == 0) continue;
+                                if (!chunk.Fields.ContainsKey(0)) continue;
+
+                                JObject[] jEntries = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0)["FieldValue"].Select(j => (JObject)j).ToArray();
+
+                                if (jEntries.Length != 1) continue;
+                                if ((string)jEntries[0]["EntryType"] != "text") continue;
+
+                                koreanQuest.Add(chunk.Key, (string)jEntries[0]["EntryValue"]);
+                            }
+                        }
+                    }
+
+                    Dictionary<string, string> englishToKorean = new Dictionary<string, string>();
+
+                    foreach (int key in englishQuest.Keys)
+                    {
+                        if (!koreanQuest.ContainsKey(key)) continue;
+                        if (englishToKorean.ContainsKey(englishQuest[key])) continue;
+
+                        englishToKorean.Add(englishQuest[key], koreanQuest[key]);
+                    }
+
+                    for (int i = 0; i < exHeaders.Length; i++)
+                    {
+                        SqFile exHeader = exHeaders[i];
+
+                        foreach (SqFile exDat in exHeader.ExDats)
+                        {
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                            if (exDat.Dir.ToLower() != "exd/completejournal/0") continue;
+                            if (exDat.LanguageCode != "en") continue;
+
+                            foreach (ExDChunk chunk in exDat.Chunks.Values)
+                            {
+                                if (chunk.Fields.Count != 1) continue;
+                                if (!chunk.Fields.ContainsKey(0)) continue;
+
+                                JObject jChunk = chunk.GetJObject();
+                                JArray jFieldArray = (JArray)jChunk["Fields"];
+                                JObject jField = (JObject)jFieldArray[0];
+                                if ((ushort)jField["FieldKey"] != 0) continue;
+
+                                JArray jEntries = (JArray)jField["FieldValue"];
+                                if (jEntries.Count != 1) continue;
+
+                                JObject jEntry = (JObject)jEntries[0];
+                                if ((string)jEntry["EntryType"] != "text") continue;
+                                if (!englishToKorean.ContainsKey((string)jEntry["EntryValue"])) continue;
+                                jEntry["EntryValue"] = englishToKorean[(string)jEntry["EntryValue"]];
+
+                                chunk.LoadJObject(jChunk);
+                            }
+
+                            exDat.LanguageCode = "trans";
+                            exDat.ExtractExD(outputDir);
+                        }
+                    }
+
+                    Console.WriteLine("DONE");
+                    Console.ReadLine();
+
                     break;
             }
         }
@@ -251,6 +367,41 @@ namespace AllaganNode
                             sw.WriteLine(line);
                         }
                     }*/
+                }
+            }
+        }
+
+        static void ApplyTranslations(SqFile[] exHeaders, string outputDir, string baseDir)
+        {
+            Console.Write("Enter lang codes to apply translations (separated by comma): ");
+            string[] targetLangCodes = Console.ReadLine().Split(',');
+
+            string translationsPath = Path.Combine(baseDir, "input", "translations");
+            if (!File.Exists(translationsPath)) return;
+
+            JObject translations = DecompressTranslations(translationsPath);
+
+            for (int i = 0; i < exHeaders.Length; i++)
+            {
+                SqFile exHeader = exHeaders[i];
+
+                foreach (SqFile exDat in exHeader.ExDats)
+                {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                    if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
+                    if (!translations.ContainsKey(exDat.Dir)) continue;
+
+                    JObject[] translationChunks = DecodeTranslations((byte[])translations[exDat.Dir]).Select(j => (JObject)j).ToArray();
+                    foreach (JObject translationChunk in translationChunks)
+                    {
+                        int chunkKey = (int)translationChunk["Key"];
+                        if (!exDat.Chunks.ContainsKey(chunkKey)) continue;
+
+                        exDat.Chunks[chunkKey].LoadJObject(translationChunk);
+                    }
+
+                    exDat.ExtractExD(outputDir);
                 }
             }
         }
@@ -559,17 +710,7 @@ namespace AllaganNode
             string translationsPath = Path.Combine(baseDir, "input", "translations");
             if (!File.Exists(translationsPath)) return;
 
-            JObject translations;
-
-            using (MemoryStream ms = new MemoryStream(File.ReadAllBytes(translationsPath)))
-            using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
-            {
-                using (MemoryStream _ms = new MemoryStream())
-                {
-                    ds.CopyTo(_ms);
-                    translations = JObject.Parse(new UTF8Encoding().GetString(_ms.ToArray()));
-                }
-            }
+            JObject translations = DecompressTranslations(translationsPath);
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
@@ -590,6 +731,38 @@ namespace AllaganNode
                     File.WriteAllBytes(transOutPath, (byte[])translations[exDat.Dir]);
                 }
             }
+        }
+
+        static JObject DecompressTranslations(string translationsPath)
+        {
+            if (!File.Exists(translationsPath)) return null;
+
+            JObject translations;
+
+            using (MemoryStream ms = new MemoryStream(File.ReadAllBytes(translationsPath)))
+            using (DeflateStream ds = new DeflateStream(ms, CompressionMode.Decompress))
+            {
+                using (MemoryStream _ms = new MemoryStream())
+                {
+                    ds.CopyTo(_ms);
+                    translations = JObject.Parse(new UTF8Encoding().GetString(_ms.ToArray()));
+                }
+            }
+            
+            return translations;
+        }
+
+        static JArray DecodeTranslations(byte[] translations)
+        {
+            string decoded = string.Empty;
+
+            using (MemoryStream ms = new MemoryStream(translations))
+            using (StreamReader sr = new StreamReader(ms))
+            {
+                decoded = sr.ReadToEnd();
+            }
+
+            return JArray.Parse(decoded);
         }
 
         private static string previousLine;
