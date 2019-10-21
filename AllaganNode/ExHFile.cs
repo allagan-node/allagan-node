@@ -63,13 +63,15 @@ namespace AllaganNode
         // decode exh from buffered data.
         public void ReadExH()
         {
-            if (Data == null || Data.Length == 0) return;
+            byte[] data = ReadData();
 
-            FixedSizeDataLength = (ushort)toInt16(Data, 0x6, true);
-            ushort columnCount = (ushort)toInt16(Data, 0x8, true);
-            Variant = (ushort)toInt16(Data, 0x10, true);
-            ushort rangeCount = (ushort)toInt16(Data, 0xa, true);
-            ushort langCount = (ushort)toInt16(Data, 0xc, true);
+            if (data == null || data.Length == 0) return;
+
+            FixedSizeDataLength = (ushort)toInt16(data, 0x6, true);
+            ushort columnCount = (ushort)toInt16(data, 0x8, true);
+            Variant = (ushort)toInt16(data, 0x10, true);
+            ushort rangeCount = (ushort)toInt16(data, 0xa, true);
+            ushort langCount = (ushort)toInt16(data, 0xc, true);
 
             if (Variant != 1) return;
 
@@ -79,8 +81,8 @@ namespace AllaganNode
                 int columnOffset = 0x20 + i * 0x4;
 
                 Columns[i] = new ExHColumn();
-                Columns[i].Type = (ushort)toInt16(Data, columnOffset, true);
-                Columns[i].Offset = (ushort)toInt16(Data, columnOffset + 0x2, true);
+                Columns[i].Type = (ushort)toInt16(data, columnOffset, true);
+                Columns[i].Offset = (ushort)toInt16(data, columnOffset + 0x2, true);
             }
             Columns = Columns.Where(x => x.Type == 0x0).ToArray();
 
@@ -90,8 +92,8 @@ namespace AllaganNode
                 int rangeOffset = (0x20 + columnCount * 0x4) + i * 0x8;
 
                 Ranges[i] = new ExHRange();
-                Ranges[i].Start = toInt32(Data, rangeOffset, true);
-                Ranges[i].Length = toInt32(Data, rangeOffset + 0x4, true);
+                Ranges[i].Start = toInt32(data, rangeOffset, true);
+                Ranges[i].Length = toInt32(data, rangeOffset + 0x4, true);
             }
 
             Languages = new ExHLanguage[langCount];
@@ -100,7 +102,7 @@ namespace AllaganNode
                 int langOffset = ((0x20 + columnCount * 0x4) + rangeCount * 0x8) + i * 0x2;
 
                 Languages[i] = new ExHLanguage();
-                Languages[i].Value = Data[langOffset];
+                Languages[i].Value = data[langOffset];
             }
         }
     }

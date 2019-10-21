@@ -328,14 +328,16 @@ namespace AllaganNode
         // decode exd from buffered data.
         public void ReadExD()
         {
-            int offsetTableSize = toInt32(Data, 0x8, true);
-            int chunkTableSize = toInt32(Data, 0xc, true);
+            byte[] data = ReadData();
+
+            int offsetTableSize = toInt32(data, 0x8, true);
+            int chunkTableSize = toInt32(data, 0xc, true);
 
             byte[] offsetTable = new byte[offsetTableSize];
-            Array.Copy(Data, 0x20, offsetTable, 0, offsetTableSize);
+            Array.Copy(data, 0x20, offsetTable, 0, offsetTableSize);
 
             byte[] chunkTable = new byte[chunkTableSize];
-            Array.Copy(Data, 0x20 + offsetTableSize, chunkTable, 0, chunkTableSize);
+            Array.Copy(data, 0x20 + offsetTableSize, chunkTable, 0, chunkTableSize);
 
             for (int i = 0; i < offsetTableSize; i += 0x8)
             {
@@ -370,70 +372,74 @@ namespace AllaganNode
             }
         }
 
-        // write updated exd chunks back to buffer.
-        public void WriteExD()
+        // repack updated exd chunks back to buffer.
+        public byte[] RepackExD()
         {
-            int offsetTableSize = toInt32(Data, 0x8, true);
-            int chunkTableSize = toInt32(Data, 0xc, true);
+            byte[] data = ReadData();
+
+            int offsetTableSize = toInt32(data, 0x8, true);
+            int chunkTableSize = toInt32(data, 0xc, true);
 
             byte[] offsetTable = new byte[offsetTableSize];
-            Array.Copy(Data, 0x20, offsetTable, 0, offsetTableSize);
+            Array.Copy(data, 0x20, offsetTable, 0, offsetTableSize);
 
             byte[] chunkTable = new byte[chunkTableSize];
-            Array.Copy(Data, 0x20 + offsetTableSize, chunkTable, 0, chunkTableSize);
+            Array.Copy(data, 0x20 + offsetTableSize, chunkTable, 0, chunkTableSize);
 
-            byte[] newChunkTable = new byte[0];
-
-            for (int i = 0; i < offsetTableSize; i += 0x8)
+            using (MemoryStream newChunkTable = new MemoryStream())
+            using (BinaryWriter newChunkTableWriter = new BinaryWriter(newChunkTable))
             {
-                int chunkKey = toInt32(offsetTable, i, true);
-                int chunkOffset = toInt32(offsetTable, i + 0x4, true);
-
-                ExDChunk chunk = Chunks[chunkKey];
-
-                int chunkTablePosition = chunkOffset - 0x20 - offsetTableSize;
-
-                byte[] columnDefinitions = new byte[ExHeader.FixedSizeDataLength];
-                Array.Copy(chunkTable, chunkTablePosition + 0x6, columnDefinitions, 0, ExHeader.FixedSizeDataLength);
-
-                byte[] rawData = new byte[0];
-
-                foreach (ExHColumn column in ExHeader.Columns)
+                for (int i = 0; i < offsetTableSize; i += 0x8)
                 {
-                    int fieldStart = rawData.Length;
-                    Array.Copy(toBytes(fieldStart, true), 0, columnDefinitions, column.Offset, 0x4);
+                    int chunkKey = toInt32(offsetTable, i, true);
+                    int chunkOffset = toInt32(offsetTable, i + 0x4, true);
 
-                    Array.Resize(ref rawData, rawData.Length + chunk.Fields[column.Offset].Length + 1);
-                    Array.Copy(chunk.Fields[column.Offset], 0, rawData, fieldStart, chunk.Fields[column.Offset].Length);
+                    ExDChunk chunk = Chunks[chunkKey];
+
+                    int chunkTablePosition = chunkOffset - 0x20 - offsetTableSize;
+
+                    byte[] columnDefinitions = new byte[ExHeader.FixedSizeDataLength];
+                    Array.Copy(chunkTable, chunkTablePosition + 0x6, columnDefinitions, 0, ExHeader.FixedSizeDataLength);
+
+                    using (MemoryStream rawData = new MemoryStream())
+                    using (BinaryWriter rawDataWriter = new BinaryWriter(rawData))
+                    {
+                        foreach (ExHColumn column in ExHeader.Columns)
+                        {
+                            int fieldStart = (int)rawData.Length;
+                            Array.Copy(toBytes(fieldStart, true), 0, columnDefinitions, column.Offset, 0x4);
+
+                            rawDataWriter.Write(chunk.Fields[column.Offset]);
+                            rawDataWriter.Write((byte)0);
+                        }
+
+                        int paddingLeftover = ((int)rawData.Length + ExHeader.FixedSizeDataLength + 0x6 + (int)newChunkTable.Length + offsetTableSize + 0x20) % 0x4;
+                        if (paddingLeftover != 0)
+                        {
+                            rawDataWriter.Write(new byte[0x4 - paddingLeftover]);
+                        }
+
+                        byte[] newChunkHeader = new byte[0x6];
+                        Array.Copy(toBytes((int)rawData.Length + ExHeader.FixedSizeDataLength, true), 0, newChunkHeader, 0, 0x4);
+                        Array.Copy(toBytes(chunk.CheckDigit, true), 0, newChunkHeader, 0x4, 0x2);
+
+                        int newChunkOffset = (int)newChunkTable.Length + 0x20 + offsetTableSize;
+                        Array.Copy(toBytes(newChunkOffset, true), 0, offsetTable, i + 0x4, 0x4);
+
+                        newChunkTableWriter.Write(newChunkHeader);
+                        newChunkTableWriter.Write(columnDefinitions);
+                        newChunkTableWriter.Write(rawData.ToArray());
+                    }
                 }
 
-                int paddingLeftover = (rawData.Length + ExHeader.FixedSizeDataLength + 0x6 + newChunkTable.Length + offsetTableSize + 0x20) % 0x4;
-                if (paddingLeftover != 0)
-                {
-                    rawData = rawData.Concat(new byte[0x4 - paddingLeftover]).ToArray();
-                }
+                byte[] newBuffer = new byte[0x20 + offsetTableSize + newChunkTable.Length];
+                Array.Copy(data, 0, newBuffer, 0, 0x20);
+                Array.Copy(toBytes((int)newChunkTable.Length, true), 0, newBuffer, 0xc, 0x4);
+                Array.Copy(offsetTable, 0, newBuffer, 0x20, offsetTableSize);
+                Array.Copy(newChunkTable.ToArray(), 0, newBuffer, 0x20 + offsetTableSize, (int)newChunkTable.Length);
 
-                byte[] newChunkHeader = new byte[0x6];
-                Array.Copy(toBytes(rawData.Length + ExHeader.FixedSizeDataLength, true), 0, newChunkHeader, 0, 0x4);
-                Array.Copy(toBytes(chunk.CheckDigit, true), 0, newChunkHeader, 0x4, 0x2);
-
-                int newChunkOffset = newChunkTable.Length + 0x20 + offsetTableSize;
-                Array.Copy(toBytes(newChunkOffset, true), 0, offsetTable, i + 0x4, 0x4);
-
-                int curLength = newChunkTable.Length;
-                Array.Resize(ref newChunkTable, newChunkTable.Length + newChunkHeader.Length + columnDefinitions.Length + rawData.Length);
-                Array.Copy(newChunkHeader, 0, newChunkTable, curLength, newChunkHeader.Length);
-                Array.Copy(columnDefinitions, 0, newChunkTable, curLength + newChunkHeader.Length, columnDefinitions.Length);
-                Array.Copy(rawData, 0, newChunkTable, curLength + newChunkHeader.Length + columnDefinitions.Length, rawData.Length);
+                return newBuffer;
             }
-
-            byte[] newBuffer = new byte[0x20 + offsetTableSize + newChunkTable.Length];
-            Array.Copy(Data, 0, newBuffer, 0, 0x20);
-            Array.Copy(toBytes(newChunkTable.Length, true), 0, newBuffer, 0xc, 0x4);
-            Array.Copy(offsetTable, 0, newBuffer, 0x20, offsetTableSize);
-            Array.Copy(newChunkTable, 0, newBuffer, 0x20 + offsetTableSize, newChunkTable.Length);
-
-            Data = newBuffer;
         }
 
         // extract exd to external file.

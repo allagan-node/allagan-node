@@ -46,11 +46,9 @@ namespace AllaganNode
                     sqFile.Key = br.ReadUInt32();
                     sqFile.DirectoryKey = br.ReadUInt32();
                     sqFile.WrappedOffset = br.ReadInt32();
-                    br.ReadInt32();
+                    sqFile.DatPath = datPath;
 
-                    // uncompress and cache data buffer for all sqfiles.
-                    // TODO: only read required sqfiles.
-                    sqFile.ReadData(datPath);
+                    br.ReadInt32();
 
                     if (!sqFiles.ContainsKey(sqFile.DirectoryKey)) sqFiles.Add(sqFile.DirectoryKey, new Dictionary<uint, SqFile>());
                     sqFiles[sqFile.DirectoryKey].Add(sqFile.Key, sqFile);
@@ -64,7 +62,7 @@ namespace AllaganNode
             SqFile rootFile = sqFiles[Hash.Compute("exd")][Hash.Compute("root.exl")];
             List<string> headerNames = new List<string>();
 
-            using (MemoryStream ms = new MemoryStream(rootFile.Data))
+            using (MemoryStream ms = new MemoryStream(rootFile.ReadData()))
             using (StreamReader sr = new StreamReader(ms, Encoding.ASCII))
             using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "root.exl")))
             {
@@ -475,15 +473,13 @@ namespace AllaganNode
 
             string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
             File.Copy(indexPath, outputIndexPath, true);
-            string outputDatPath = Path.Combine(outputDir, Path.GetFileName(datPath));
-            File.Copy(datPath, outputDatPath, true);
-            string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
-            CreateNewDat(outputDatPath, outputNewDatPath);
-
-            byte[] origDat = File.ReadAllBytes(outputDatPath);
-            byte[] newDat = File.ReadAllBytes(outputNewDatPath);
             byte[] index = File.ReadAllBytes(outputIndexPath);
 
+            byte[] origDat = File.ReadAllBytes(datPath);
+
+            string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
+            CreateNewDat(datPath, outputNewDatPath);
+            
             for (int i = 0; i < exHeaders.Length; i++)
             {
                 foreach (ExDFile exDat in exHeaders[i].ExDats)
@@ -513,12 +509,19 @@ namespace AllaganNode
                         exDat.Chunks[chunkKey].LoadJObject(jChunk);
                     }
 
-                    exDat.WriteExD();
-                    exDat.WriteData(origDat, ref newDat, index);
+                    byte[] buffer = exDat.RepackExD();
+                    buffer = exDat.RepackData(origDat, buffer);
+
+                    exDat.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
+
+                    using (FileStream fs = new FileStream(outputNewDatPath, FileMode.Append, FileAccess.Write))
+                    using (BinaryWriter bw = new BinaryWriter(fs))
+                    {
+                        bw.Write(buffer);
+                    }
                 }
             }
 
-            File.WriteAllBytes(outputNewDatPath, newDat);
             File.WriteAllBytes(outputIndexPath, index);
 
             UpdateDatHash(outputNewDatPath);
