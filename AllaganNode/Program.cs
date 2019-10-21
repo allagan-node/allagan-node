@@ -210,6 +210,7 @@ namespace AllaganNode
                                     string test = new UTF8Encoding(false).GetString(field);
                                     if (test.Contains(keyword))
                                     {
+                                        Console.WriteLine();
                                         Console.WriteLine(exDat.Dir + "/" + exDat.Name);
                                     }
                                 }
@@ -217,12 +218,14 @@ namespace AllaganNode
                         }
                     }
 
+                    Console.WriteLine();
                     Console.WriteLine("DONE");
                     Console.ReadLine();
                     break;
 
                     // dev option for mapping CompleteJournal...
-                case "map_quests":
+                case "map_journal":
+                    // mapping quest titles...
                     Dictionary<int, string> englishQuest = new Dictionary<int, string>();
                     Dictionary<int, string> koreanQuest = new Dictionary<int, string>();
 
@@ -244,12 +247,12 @@ namespace AllaganNode
                                 if (!chunk.Fields.ContainsKey(0)) continue;
 
                                 JObject jChunk = chunk.GetJObject();
-                                JObject[] jEntries = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0)["FieldValue"].Select(j => (JObject)j).ToArray();
+                                JObject jField = (JObject)jChunk["Fields"].First(j => (ushort)j["FieldKey"] == 0);
+                                JArray jEntries = (JArray)jField["FieldValue"];
 
-                                if (jEntries.Length != 1) continue;
-                                if ((string)jEntries[0]["EntryType"] != "text") continue;
+                                if (jEntries.Count == 0) continue;
 
-                                englishQuest.Add(chunk.Key, (string)jEntries[0]["EntryValue"]);
+                                englishQuest.Add(chunk.Key, jEntries.ToString());
                             }
 
                             string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
@@ -274,12 +277,12 @@ namespace AllaganNode
                                 if (chunk.Fields.Count == 0) continue;
                                 if (!chunk.Fields.ContainsKey(0)) continue;
 
-                                JObject[] jEntries = jChunk["Fields"].Select(j => (JObject)j).First(j => (ushort)j["FieldKey"] == 0)["FieldValue"].Select(j => (JObject)j).ToArray();
+                                JObject jField = (JObject)jChunk["Fields"].First(j => (ushort)j["FieldKey"] == 0);
+                                JArray jEntries = (JArray)jField["FieldValue"];
 
-                                if (jEntries.Length != 1) continue;
-                                if ((string)jEntries[0]["EntryType"] != "text") continue;
+                                if (jEntries.Count == 0) continue;
 
-                                koreanQuest.Add(chunk.Key, (string)jEntries[0]["EntryValue"]);
+                                koreanQuest.Add(chunk.Key, jEntries.ToString());
                             }
                         }
                     }
@@ -292,6 +295,96 @@ namespace AllaganNode
                         if (englishToKorean.ContainsKey(englishQuest[key])) continue;
 
                         englishToKorean.Add(englishQuest[key], koreanQuest[key]);
+                    }
+
+                    // mapping content finder titles...
+                    Dictionary<string, string> englishContents = new Dictionary<string, string>();
+                    Dictionary<string, string> koreanContents = new Dictionary<string, string>();
+
+                    for (int i = 0; i < exHeaders.Length; i++)
+                    {
+                        SqFile exHeader = exHeaders[i];
+
+                        foreach (SqFile exDat in exHeader.ExDats)
+                        {
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                            if (exDat.Dir.ToLower() != "exd/contentfindercondition/0") continue;
+                            if (exDat.LanguageCode != "en") continue;
+
+                            foreach (ExDChunk chunk in exDat.Chunks.Values)
+                            {
+                                if (chunk.Fields.Count != 2) continue;
+                                if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(44)) continue;
+
+                                JObject jChunk = chunk.GetJObject();
+                                JArray jFields = (JArray)jChunk["Fields"];
+                                JObject jKeyFIeld = (JObject)jFields.First(j => (ushort)j["FieldKey"] == 44);
+                                JArray jKeyEntries = (JArray)jKeyFIeld["FieldValue"];
+
+                                if (jKeyEntries.Count != 1) continue;
+                                if ((string)jKeyEntries[0]["EntryType"] != "text") continue;
+
+                                string fieldKey = (string)jKeyEntries[0]["EntryValue"];
+
+                                if (englishContents.ContainsKey(fieldKey)) continue;
+
+                                JObject jValueField = (JObject)jFields.First(j => (ushort)j["FieldKey"] == 0);
+                                JArray jValueEntries = (JArray)jValueField["FieldValue"];
+
+                                if (jValueEntries.Count == 0) continue;
+
+                                englishContents.Add(fieldKey, jValueEntries.ToString());
+                            }
+
+                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                            if (!Directory.Exists(exDatOutDir)) continue;
+
+                            string exDatKoPath = Path.Combine(exDatOutDir, "ko");
+                            if (!File.Exists(exDatKoPath)) continue;
+
+                            JObject[] jChunks;
+
+                            using (StreamReader sr = new StreamReader(exDatKoPath))
+                            {
+                                jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
+                            }
+
+                            foreach (JObject jChunk in jChunks)
+                            {
+                                ExDChunk chunk = new ExDChunk();
+                                chunk.LoadJObject(jChunk);
+
+                                if (chunk.Fields.Count != 2) continue;
+                                if (!chunk.Fields.ContainsKey(0) || !chunk.Fields.ContainsKey(44)) continue;
+
+                                JArray jFields = (JArray)jChunk["Fields"];
+                                JObject jKeyField = (JObject)jFields.First(j => (ushort)j["FieldKey"] == 44);
+                                JArray jKeyEntries = (JArray)jKeyField["FieldValue"];
+
+                                if (jKeyEntries.Count != 1) continue;
+                                if ((string)jKeyEntries[0]["EntryType"] != "text") continue;
+
+                                string fieldKey = (string)jKeyEntries[0]["EntryValue"];
+
+                                if (koreanContents.ContainsKey(fieldKey)) continue;
+
+                                JObject jValueField = (JObject)jFields.First(j => (ushort)j["FieldKey"] == 0);
+                                JArray jValueEntries = (JArray)jValueField["FieldValue"];
+
+                                if (jValueEntries.Count == 0) continue;
+
+                                koreanContents.Add(fieldKey, jValueEntries.ToString());
+                            }
+                        }
+                    }
+
+                    foreach (string key in englishContents.Keys)
+                    {
+                        if (!koreanContents.ContainsKey(key)) continue;
+                        if (englishToKorean.ContainsKey(englishContents[key])) continue;
+
+                        englishToKorean.Add(englishContents[key], koreanContents[key]);
                     }
 
                     for (int i = 0; i < exHeaders.Length; i++)
@@ -316,12 +409,10 @@ namespace AllaganNode
                                 if ((ushort)jField["FieldKey"] != 0) continue;
 
                                 JArray jEntries = (JArray)jField["FieldValue"];
-                                if (jEntries.Count != 1) continue;
+                                if (jEntries.Count == 0) continue;
 
-                                JObject jEntry = (JObject)jEntries[0];
-                                if ((string)jEntry["EntryType"] != "text") continue;
-                                if (!englishToKorean.ContainsKey((string)jEntry["EntryValue"])) continue;
-                                jEntry["EntryValue"] = englishToKorean[(string)jEntry["EntryValue"]];
+                                if (!englishToKorean.ContainsKey(jEntries.ToString())) continue;
+                                jField["FieldValue"] = JArray.Parse(englishToKorean[jEntries.ToString()]);
 
                                 chunk.LoadJObject(jChunk);
                             }
@@ -458,7 +549,7 @@ namespace AllaganNode
                 }
             }
 
-            File.WriteAllBytes(outputDatPath, origDat);
+            //File.WriteAllBytes(outputDatPath, origDat);
             File.WriteAllBytes(outputNewDatPath, newDat);
             File.WriteAllBytes(outputIndexPath, index);
 
@@ -682,6 +773,7 @@ namespace AllaganNode
 
                     translations.Add(exDat.Dir, new JValue(File.ReadAllBytes(exDatOutPath)));
 
+                    Console.WriteLine();
                     Console.WriteLine(exDat.Dir);
                 }
             }
@@ -701,6 +793,7 @@ namespace AllaganNode
                 File.WriteAllBytes(outputPath, ms.ToArray());
             }
 
+            Console.WriteLine();
             Console.WriteLine("DONE");
             Console.ReadLine();
         }
