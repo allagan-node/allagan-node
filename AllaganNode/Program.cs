@@ -27,10 +27,7 @@ namespace AllaganNode
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             Dictionary<uint, Dictionary<uint, SqFile>> sqFiles = new Dictionary<uint, Dictionary<uint, SqFile>>();
-            List<string> headerNames = new List<string>();
-            SqFile rootFile;
-            SqFile[] exHeaders;
-
+            
             // Read index and cache all available sqfiles.
             using (FileStream fs = File.OpenRead(indexPath))
             using (BinaryReader br = new BinaryReader(fs))
@@ -61,10 +58,12 @@ namespace AllaganNode
                     Report(string.Format("{0} / {1}: {2}", i, fileCount, sqFile.Key));
                 }
             }
-
+            
             // find root file that lists all ExHs in 0a0000.
             // root file encoding is simple ASCII.
-            rootFile = sqFiles[Hash.Compute("exd")][Hash.Compute("root.exl")];
+            SqFile rootFile = sqFiles[Hash.Compute("exd")][Hash.Compute("root.exl")];
+            List<string> headerNames = new List<string>();
+
             using (MemoryStream ms = new MemoryStream(rootFile.Data))
             using (StreamReader sr = new StreamReader(ms, Encoding.ASCII))
             using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "root.exl")))
@@ -86,6 +85,8 @@ namespace AllaganNode
                 }
             }
 
+            List<ExHFile> exHeaderList = new List<ExHFile>();
+
             // for all ExHs, decode the cached data buffer as ExH.
             for (int i = 0; i < headerNames.Count; i++)
             {
@@ -103,52 +104,55 @@ namespace AllaganNode
                 headerDir = string.Format("exd{0}", headerDir);
 
                 SqFile sqFile = sqFiles[Hash.Compute(headerDir)][Hash.Compute(string.Format("{0}.exh", headerName))];
-                sqFile.Name = headerName;
-                sqFile.Dir = headerDir;
-                sqFile.ReadExH();
-            }
 
-            // only add ExHs with supported variant and string columns.
-            List<SqFile> exHeaderList = new List<SqFile>();
-            foreach (uint directoryKey in sqFiles.Keys)
-            {
-                foreach (uint key in sqFiles[directoryKey].Keys)
+                ExHFile exHFile = new ExHFile();
+                exHFile.Copy(sqFile);
+                exHFile.Name = headerName + ".exh";
+                exHFile.Dir = headerDir;
+                exHFile.HeaderName = headerName;
+                exHFile.ReadExH();
+
+                // only add ExHs with supported variant and string columns.
+                if (exHFile.Variant == 1 && exHFile.Columns != null && exHFile.Columns.Length > 0)
                 {
-                    SqFile sqFile = sqFiles[directoryKey][key];
-
-                    if (sqFile.Variant == 1 && sqFile.Columns != null && sqFile.Columns.Length > 0)
-                    {
-                        exHeaderList.Add(sqFile);
-                    }
+                    exHeaderList.Add(exHFile);
                 }
             }
-            exHeaders = exHeaderList.ToArray();
+
+            ExHFile[] exHeaders = exHeaderList.ToArray();
 
             // for all ExHs, decode child ExDs and link them to ExH.
             for (int i = 0; i < exHeaders.Length; i++)
             {
                 Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exHeaders[i].Name));
 
-                SqFile exHeader = exHeaders[i];
+                ExHFile exHeader = exHeaders[i];
 
                 foreach (ExHLanguage lang in exHeader.Languages)
                 {
                     foreach (ExHRange range in exHeader.Ranges)
                     {
-                        string datName = string.Format("{0}_{1}_{2}.exd", exHeader.Name, range.Start, lang.Code);
+                        string datName = string.Format("{0}_{1}_{2}.exd", exHeader.HeaderName, range.Start, lang.Code);
 
                         uint directoryKey = Hash.Compute(exHeader.Dir);
                         uint key = Hash.Compute(datName);
+
                         if (!sqFiles.ContainsKey(directoryKey)) continue;
                         if (!sqFiles[directoryKey].ContainsKey(key)) continue;
-                        SqFile exDat = sqFiles[directoryKey][key];
-                        exDat.Columns = exHeader.Columns;
-                        exDat.FixedSizeDataLength = exHeader.FixedSizeDataLength;
-                        exDat.ReadExD();
 
+                        ExDFile exDat = new ExDFile();
+                        exDat.Copy(sqFiles[directoryKey][key]);
+                        
                         exDat.Name = datName;
-                        exDat.Dir = string.Format("{0}/{1}/{2}", exHeader.Dir, exHeader.Name, range.Start);
+                        exDat.Dir = exHeader.Dir;
+
+                        exDat.HeaderName = exHeader.HeaderName;
+                        exDat.PhysicalDir = string.Format("{0}/{1}/{2}", exHeader.Dir, exHeader.HeaderName, range.Start);
                         exDat.LanguageCode = lang.Code;
+
+                        exDat.ExHeader = exHeader;
+                        
+                        exDat.ReadExD();
                         exHeader.ExDats.Add(exDat);
                     }
                 }
@@ -195,9 +199,7 @@ namespace AllaganNode
 
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
-                        SqFile exHeader = exHeaders[i];
-
-                        foreach (SqFile exDat in exHeader.ExDats)
+                        foreach (ExDFile exDat in exHeaders[i].ExDats)
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
@@ -211,7 +213,7 @@ namespace AllaganNode
                                     if (test.Contains(keyword))
                                     {
                                         Console.WriteLine();
-                                        Console.WriteLine(exDat.Dir + "/" + exDat.Name);
+                                        Console.WriteLine(exDat.PhysicalDir + "/" + exDat.Name);
                                     }
                                 }
                             }
@@ -231,13 +233,11 @@ namespace AllaganNode
 
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
-                        SqFile exHeader = exHeaders[i];
-
-                        foreach (SqFile exDat in exHeader.ExDats)
+                        foreach (ExDFile exDat in exHeaders[i].ExDats)
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                            if (exDat.Dir.Substring(0, exDat.Dir.LastIndexOf("/")).ToLower() != "exd/quest") continue;
+                            if (exDat.Dir.ToLower() != "exd" || exDat.HeaderName.ToLower() != "quest") continue;
                             if (exDat.LanguageCode != "en") continue;
 
                             foreach (ExDChunk chunk in exDat.Chunks.Values)
@@ -255,7 +255,7 @@ namespace AllaganNode
                                 englishQuest.Add(chunk.Key, jEntries.ToString());
                             }
 
-                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                            string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                             if (!Directory.Exists(exDatOutDir)) continue;
 
                             string exDatKoPath = Path.Combine(exDatOutDir, "ko");
@@ -303,13 +303,11 @@ namespace AllaganNode
 
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
-                        SqFile exHeader = exHeaders[i];
-
-                        foreach (SqFile exDat in exHeader.ExDats)
+                        foreach (ExDFile exDat in exHeaders[i].ExDats)
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                            if (exDat.Dir.ToLower() != "exd/contentfindercondition/0") continue;
+                            if (exDat.Dir.ToLower() != "exd" || exDat.HeaderName.ToLower() != "contentfindercondition") continue;
                             if (exDat.LanguageCode != "en") continue;
 
                             foreach (ExDChunk chunk in exDat.Chunks.Values)
@@ -337,7 +335,7 @@ namespace AllaganNode
                                 englishContents.Add(fieldKey, jValueEntries.ToString());
                             }
 
-                            string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                            string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                             if (!Directory.Exists(exDatOutDir)) continue;
 
                             string exDatKoPath = Path.Combine(exDatOutDir, "ko");
@@ -389,13 +387,11 @@ namespace AllaganNode
 
                     for (int i = 0; i < exHeaders.Length; i++)
                     {
-                        SqFile exHeader = exHeaders[i];
-
-                        foreach (SqFile exDat in exHeader.ExDats)
+                        foreach (ExDFile exDat in exHeaders[i].ExDats)
                         {
                             Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                            if (exDat.Dir.ToLower() != "exd/completejournal/0") continue;
+                            if (exDat.Dir.ToLower() != "exd" || exDat.HeaderName.ToLower() != "completejournal") continue;
                             if (exDat.LanguageCode != "en") continue;
 
                             foreach (ExDChunk chunk in exDat.Chunks.Values)
@@ -422,68 +418,43 @@ namespace AllaganNode
                         }
                     }
 
-                    Console.WriteLine("DONE");
-                    Console.ReadLine();
-
                     break;
             }
         }
 
-        static void ExtractExDs(SqFile[] exHeaders, string outputDir)
+        static void ExtractExDs(ExHFile[] exHeaders, string outputDir)
         {
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                Report(string.Format("{0} / {1}: {2}", i.ToString(), exHeaders.Length.ToString(), exHeader.Name));
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
+                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
                     exDat.ExtractExD(outputDir);
-                    /*
-                    string exDatCsvPath = Path.Combine(exDatOutDir, exDat.LanguageCode + ".csv");
-                    using (StreamWriter sw = new StreamWriter(exDatCsvPath, false))
-                    {
-                        int[] orderedKeys = exDat.Chunks.Keys.OrderBy(x => x).ToArray();
-                        for (int j = 0; j < orderedKeys.Length; j++)
-                        {
-                            ExDChunk chunk = exDat.Chunks[orderedKeys[j]];
-                            string line = chunk.Key + ",";
-                            ushort[] orderedColumns = chunk.Fields.Keys.OrderBy(x => x).ToArray();
-                            for (int k = 0; k < orderedColumns.Length; k++)
-                            {
-                                byte[] field = chunk.Fields[orderedColumns[k]];
-                                line += orderedColumns[k] + ",\"" + JsonConvert.SerializeObject(new UTF8Encoding(false).GetString(field));
-                            }
-                            sw.WriteLine(line);
-                        }
-                    }*/
                 }
             }
         }
 
-        static void ApplyTranslations(SqFile[] exHeaders, string outputDir, string baseDir)
+        static void ApplyTranslations(ExHFile[] exHeaders, string outputDir, string baseDir)
         {
-            Console.Write("Enter lang codes to apply translations (separated by comma): ");
-            string[] targetLangCodes = Console.ReadLine().Split(',');
-
             string translationsPath = Path.Combine(baseDir, "input", "translations");
             if (!File.Exists(translationsPath)) return;
+
+            Console.Write("Enter lang codes to apply translations (separated by comma): ");
+            string[] targetLangCodes = Console.ReadLine().Split(',');
 
             JObject translations = DecompressTranslations(translationsPath);
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
                     Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
                     if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
-                    if (!translations.ContainsKey(exDat.Dir)) continue;
+                    if (!translations.ContainsKey(exDat.PhysicalDir)) continue;
 
-                    JObject[] translationChunks = DecodeTranslations((byte[])translations[exDat.Dir]).Select(j => (JObject)j).ToArray();
+                    JObject[] translationChunks = DecodeTranslations((byte[])translations[exDat.PhysicalDir]).Select(j => (JObject)j).ToArray();
                     foreach (JObject translationChunk in translationChunks)
                     {
                         int chunkKey = (int)translationChunk["Key"];
@@ -497,7 +468,7 @@ namespace AllaganNode
             }
         }
 
-        static void RepackExDs(SqFile[] exHeaders, string outputDir, string indexPath, string datPath)
+        static void RepackExDs(ExHFile[] exHeaders, string outputDir, string indexPath, string datPath)
         {
             Console.Write("Enter lang codes to repack (separated by comma): ");
             string[] targetLangCodes = Console.ReadLine().Split(',');
@@ -515,15 +486,13 @@ namespace AllaganNode
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
                     Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
                     if (!targetLangCodes.Contains(exDat.LanguageCode)) continue;
 
-                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                     if (!Directory.Exists(exDatOutDir)) continue;
 
                     string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
@@ -549,14 +518,13 @@ namespace AllaganNode
                 }
             }
 
-            //File.WriteAllBytes(outputDatPath, origDat);
             File.WriteAllBytes(outputNewDatPath, newDat);
             File.WriteAllBytes(outputIndexPath, index);
 
             UpdateDatHash(outputNewDatPath);
         }
 
-        static void SwapCodes(SqFile[] exHeaders, string outputDir)
+        static void SwapCodes(ExHFile[] exHeaders, string outputDir)
         {
             // swap two lang table based on string key mapping (if available) or chunk key mapping.
             Console.Write("Enter source lang code: ");
@@ -587,29 +555,28 @@ namespace AllaganNode
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
                     Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
                     if (exDat.LanguageCode != targetLangCode) continue;
 
-                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                     if (!Directory.Exists(exDatOutDir)) continue;
 
-                    string exDatOutPath = Path.Combine(exDatOutDir, sourceLangCode);
+                    string exDatSourcePath = Path.Combine(exDatOutDir, sourceLangCode);
+
                     // source doesn't exist, which means this is probably newer file.
                     // need custom translations.
-                    if (!File.Exists(exDatOutPath))
+                    if (!File.Exists(exDatSourcePath))
                     {
-                        notTranslatedArray.Add(exDat.Dir);
+                        notTranslatedArray.Add(exDat.PhysicalDir);
                         continue;
                     }
 
                     JObject[] jChunks = null;
 
-                    using (StreamReader sr = new StreamReader(exDatOutPath))
+                    using (StreamReader sr = new StreamReader(exDatSourcePath))
                     {
                         jChunks = JArray.Parse(sr.ReadToEnd()).Select(j => (JObject)j).ToArray();
                     }
@@ -663,7 +630,7 @@ namespace AllaganNode
                         exDat.ExtractExD(outputDir);
 
                         // indicate that this file was mapped by string keys.
-                        stringKeyMappedArray.Add(exDat.Dir);
+                        stringKeyMappedArray.Add(exDat.PhysicalDir);
                     }
                     else
                     {
@@ -682,7 +649,7 @@ namespace AllaganNode
                         // record it as empty.
                         if (isEmpty)
                         {
-                            emptyArray.Add(exDat.Dir);
+                            emptyArray.Add(exDat.PhysicalDir);
                         }
                         else
                         {
@@ -701,7 +668,7 @@ namespace AllaganNode
                             // add in not translated list.
                             if (isEmpty)
                             {
-                                notTranslatedArray.Add(exDat.Dir);
+                                notTranslatedArray.Add(exDat.PhysicalDir);
                             }
                             // both are not empty, let's proceed with chunk key mapping...
                             else
@@ -722,7 +689,7 @@ namespace AllaganNode
                                 exDat.ExtractExD(outputDir);
 
                                 // indicate that this file was mapped by chunk keys.
-                                chunkKeyMappedArray.Add(exDat.Dir);
+                                chunkKeyMappedArray.Add(exDat.PhysicalDir);
                             }
                         }
                     }
@@ -751,30 +718,28 @@ namespace AllaganNode
             }
         }
 
-        static void CompressTranslations(SqFile[] exHeaders, string outputDir)
+        static void CompressTranslations(ExHFile[] exHeaders, string outputDir)
         {
             JObject translations = new JObject();
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
                     Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                    if (translations.ContainsKey(exDat.Dir)) continue;
+                    if (translations.ContainsKey(exDat.PhysicalDir)) continue;
 
-                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                     if (!Directory.Exists(exDatOutDir)) continue;
 
                     string exDatOutPath = Path.Combine(exDatOutDir, "trans");
                     if (!File.Exists(exDatOutPath)) continue;
 
-                    translations.Add(exDat.Dir, new JValue(File.ReadAllBytes(exDatOutPath)));
+                    translations.Add(exDat.PhysicalDir, new JValue(File.ReadAllBytes(exDatOutPath)));
 
                     Console.WriteLine();
-                    Console.WriteLine(exDat.Dir);
+                    Console.WriteLine(exDat.PhysicalDir);
                 }
             }
 
@@ -798,7 +763,7 @@ namespace AllaganNode
             Console.ReadLine();
         }
 
-        static void ExtractTranslations(SqFile[] exHeaders, string outputDir, string baseDir)
+        static void ExtractTranslations(ExHFile[] exHeaders, string outputDir, string baseDir)
         {
             string translationsPath = Path.Combine(baseDir, "input", "translations");
             if (!File.Exists(translationsPath)) return;
@@ -807,21 +772,19 @@ namespace AllaganNode
 
             for (int i = 0; i < exHeaders.Length; i++)
             {
-                SqFile exHeader = exHeaders[i];
-
-                foreach (SqFile exDat in exHeader.ExDats)
+                foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
                     Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
 
-                    if (!translations.ContainsKey(exDat.Dir)) continue;
+                    if (!translations.ContainsKey(exDat.PhysicalDir)) continue;
 
-                    string exDatOutDir = Path.Combine(outputDir, exDat.Dir);
+                    string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
                     if (!Directory.Exists(exDatOutDir)) Directory.CreateDirectory(exDatOutDir);
 
                     string transOutPath = Path.Combine(exDatOutDir, "trans");
                     if (File.Exists(transOutPath)) File.Delete(transOutPath);
 
-                    File.WriteAllBytes(transOutPath, (byte[])translations[exDat.Dir]);
+                    File.WriteAllBytes(transOutPath, (byte[])translations[exDat.PhysicalDir]);
                 }
             }
         }
