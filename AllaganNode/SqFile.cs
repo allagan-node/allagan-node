@@ -89,6 +89,9 @@ namespace AllaganNode
                         br.BaseStream.Position = Offset + endOfHeader + blockOffset;
                         br.Read(blockHeader, 0, 0x10);
 
+                        int magic = BitConverter.ToInt32(blockHeader, 0);
+                        if (magic != 0x10) throw new Exception();
+
                         // source size -> size the block is actually taking up in this dat file.
                         // raw size -> size before compression (if compressed)
                         int sourceSize = BitConverter.ToInt32(blockHeader, 0x8);
