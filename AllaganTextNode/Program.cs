@@ -25,7 +25,11 @@ namespace AllaganNode
             string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 
             string indexPath = Path.Combine(baseDir, "input", "000000.win32.index");
+            //string indexPath = Path.Combine(baseDir, "input", "0a0000.win32.index");
+
             string datPath = Path.Combine(baseDir, "input", "000000.win32.dat0");
+            //string datPath = Path.Combine(baseDir, "input", "0a0000.win32.dat0");
+
             string outputDir = Path.Combine(baseDir, "output");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
@@ -61,8 +65,21 @@ namespace AllaganNode
             }
 
             SqFile mappingFile = sqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
+            //SqFile mappingFile = sqFiles[Hash.Compute("exd")][Hash.Compute("Achievement_0_en.exd")];
+
             byte[] test = mappingFile.ReadData();
+            //test[0x154] = 0x31;
+            //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
+            //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
+            //test[0x15a] <-- when 0x159 goes over 0x3 this changes
+            //test[0x15c] = 0x6; coudl be y?
+            //test[0x15e] = 0x2; could be y?
+            // c~f looks like size-related thing.
+            test[0x15b] = 0x2;
+
             File.WriteAllBytes(@"C:\Users\serap\Desktop\test", test);
+
+            
 
             string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
             File.Copy(indexPath, outputIndexPath, true);
@@ -71,6 +88,7 @@ namespace AllaganNode
             byte[] origDat = File.ReadAllBytes(datPath);
 
             string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
+            //string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
             CreateNewDat(datPath, outputNewDatPath);
 
             byte[] buffer = mappingFile.RepackData(origDat, test);
