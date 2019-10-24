@@ -10,7 +10,7 @@ namespace FontPngDecoder
         static void Main(string[] args)
         {
             string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string inputFontPath = Path.Combine(baseDir, "font1.png");
+            string inputFontPath = Path.Combine(baseDir, "font3.png");
 
             Bitmap fontPng = new Bitmap(inputFontPath);
             Bitmap aFont = new Bitmap(fontPng.Width, fontPng.Height);

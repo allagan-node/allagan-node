@@ -18,24 +18,10 @@ namespace AllaganNode
 
     class Program
     {
-        static unsafe void Main(string[] args)
+        static Dictionary<uint, Dictionary<uint, SqFile>> readIndex(string indexPath, string datPath)
         {
-            Console.WriteLine(string.Format("AllaganTextNode v{0}", Assembly.GetExecutingAssembly().GetName().Version.ToString()));
-
-            string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-
-            string indexPath = Path.Combine(baseDir, "input", "000000.win32.index");
-            //string indexPath = Path.Combine(baseDir, "input", "0a0000.win32.index");
-
-            string datPath = Path.Combine(baseDir, "input", "000000.win32.dat0");
-            //string datPath = Path.Combine(baseDir, "input", "0a0000.win32.dat0");
-
-            string outputDir = Path.Combine(baseDir, "output");
-            if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
-
             Dictionary<uint, Dictionary<uint, SqFile>> sqFiles = new Dictionary<uint, Dictionary<uint, SqFile>>();
 
-            // Read index and cache all available sqFiles.
             using (FileStream fs = File.OpenRead(indexPath))
             using (BinaryReader br = new BinaryReader(fs))
             {
@@ -64,7 +50,45 @@ namespace AllaganNode
                 }
             }
 
-            SqFile mappingFile = sqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
+            return sqFiles;
+        }
+
+        static unsafe void Main(string[] args)
+        {
+            Console.WriteLine(string.Format("AllaganTextNode v{0}", Assembly.GetExecutingAssembly().GetName().Version.ToString()));
+
+            string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string inputDir = Path.Combine(baseDir, "input");
+            string globalDir = Path.Combine(inputDir, "global");
+            string koreanDir = Path.Combine(inputDir, "korean");
+
+            string glIndexPath = Path.Combine(globalDir, "000000.win32.index");
+            string koIndexPath = Path.Combine(koreanDir, "000000.win32.index");
+
+            string glDatPath = Path.Combine(globalDir, "000000.win32.dat0");
+            string koDatPath = Path.Combine(koreanDir, "000000.win32.dat0");
+
+            Dictionary<uint, Dictionary<uint, SqFile>> glSqFiles = readIndex(glIndexPath, glDatPath);
+            Dictionary<uint, Dictionary<uint, SqFile>> koSqFiles = readIndex(koIndexPath, koDatPath);
+
+            string outputDir = Path.Combine(baseDir, "output");
+            if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
+
+            string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
+            File.Copy(glIndexPath, outputIndexPath, true);
+            byte[] index = File.ReadAllBytes(outputIndexPath);
+
+            byte[] origDat = File.ReadAllBytes(glDatPath);
+
+            string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
+            File.Copy(koDatPath, outputNewDatPath, true);
+
+            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font1.tex")];
+            SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
+
+            glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
+
+            SqFile mappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
             //SqFile mappingFile = sqFiles[Hash.Compute("exd")][Hash.Compute("Achievement_0_en.exd")];
 
             byte[] test = mappingFile.ReadData();
@@ -72,24 +96,26 @@ namespace AllaganNode
             //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
             //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
             //test[0x15a] <-- when 0x159 goes over 0x3 this changes
-            //test[0x15c] = 0x6; coudl be y?
-            //test[0x15e] = 0x2; could be y?
+            //test[0x15b] <-- this also goes upto 0x3
+            //test[0x15c] = 0x6; -> width (on texture)
+            //test[0x15d] = 0x2; -> height (on texture)
             // c~f looks like size-related thing.
+
+            // in the fdt header area there seems to be something that controls how the texture is loaded...
+            // compare axis_12.fdt with krnaxis_120.fdt
+            
+            // code page?
+            test[0x156] = 0x2;
+            // coordinate
+            test[0x158] = 0x61;
+            test[0x159] = 0x2;
+            test[0x15a] = 0x5f;
             test[0x15b] = 0x2;
+            //size
+            test[0x15c] = 0x8;
+            test[0x15d] = 0x10;
 
             File.WriteAllBytes(@"C:\Users\serap\Desktop\test", test);
-
-            
-
-            string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(indexPath));
-            File.Copy(indexPath, outputIndexPath, true);
-            byte[] index = File.ReadAllBytes(outputIndexPath);
-
-            byte[] origDat = File.ReadAllBytes(datPath);
-
-            string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
-            //string outputNewDatPath = Path.Combine(outputDir, "0a0000.win32.dat1");
-            CreateNewDat(datPath, outputNewDatPath);
 
             byte[] buffer = mappingFile.RepackData(origDat, test);
             mappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
