@@ -83,7 +83,7 @@ namespace AllaganNode
             string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
             File.Copy(koDatPath, outputNewDatPath, true);
 
-            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font1.tex")];
+            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font2.tex")];
             SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
 
             glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
@@ -105,17 +105,26 @@ namespace AllaganNode
             // compare axis_12.fdt with krnaxis_120.fdt
             
             // code page?
-            test[0x156] = 0x2;
+            // -> 0x0~0x3 points to tex1
+            // -> 0x4 points to tex2 (coordinate is the same)
+            test[0x156] = 0x4;
             // coordinate
-            test[0x158] = 0x61;
-            test[0x159] = 0x2;
-            test[0x15a] = 0x5f;
-            test[0x15b] = 0x2;
+            test[0x158] = 0x0;
+            test[0x159] = 0x0;
+            test[0x15a] = 0x0;
+            test[0x15b] = 0x0;
             //size
-            test[0x15c] = 0x8;
-            test[0x15d] = 0x10;
+            test[0x15c] = 0xff;
+            test[0x15d] = 0xff;
 
-            File.WriteAllBytes(@"C:\Users\serap\Desktop\test", test);
+            SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("KrnAxis_120.fdt")];
+
+            byte[] koTest = koMappingFile.ReadData();
+
+            //Array.Copy(koTest, 0x150, test, 0x150, 0x10);
+
+            File.WriteAllBytes(@"C:\Users\serap\Desktop\axis_12.fdt", test);
+            File.WriteAllBytes(@"C:\Users\serap\Desktop\KrnAxis_120.fdt", koTest);
 
             byte[] buffer = mappingFile.RepackData(origDat, test);
             mappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
