@@ -1,4 +1,5 @@
-﻿using System;
+﻿using IndexRepack;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -76,17 +77,36 @@ namespace AllaganNode
 
             string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
             File.Copy(glIndexPath, outputIndexPath, true);
-            byte[] index = File.ReadAllBytes(outputIndexPath);
+
+            IndexFile indexFile = new IndexFile();
+            indexFile.ReadData(outputIndexPath);
+
+            foreach (IndexDirectoryInfo directory in indexFile.DirectoryInfo)
+            {
+                if (directory.Key != Hash.Compute("common/font")) continue;
+
+                List<IndexFileInfo> files = directory.FileInfo.ToList();
+                IndexFileInfo font1 = files.First(f => f.Key == Hash.Compute("font1.tex"));
+                IndexFileInfo font8 = new IndexFileInfo();
+                font8.Key = Hash.Compute("font8.tex");
+                font8.DirectoryInfo = directory;
+                font8.WrappedOffset = font1.WrappedOffset;
+                files.Add(font8);
+                directory.FileInfo = files.ToArray();
+            }
+
+            byte[] index = indexFile.RepackData(File.ReadAllBytes(outputIndexPath));
 
             byte[] origDat = File.ReadAllBytes(glDatPath);
 
             string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
-            File.Copy(koDatPath, outputNewDatPath, true);
+            CreateNewDat(glDatPath, outputNewDatPath);
+            //File.Copy(koDatPath, outputNewDatPath, true);
 
-            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font2.tex")];
-            SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
+            //SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font7.tex")];
+            //SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
 
-            glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
+            //glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index, Hash.Compute("font8.tex"));
 
             SqFile mappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
             //SqFile mappingFile = sqFiles[Hash.Compute("exd")][Hash.Compute("Achievement_0_en.exd")];
@@ -104,10 +124,18 @@ namespace AllaganNode
             // in the fdt header area there seems to be something that controls how the texture is loaded...
             // compare axis_12.fdt with krnaxis_120.fdt
             
+            // 0x0~0x3 -> unicode, big endian (flipped)
+
             // code page?
             // -> 0x0~0x3 points to tex1
-            // -> 0x4 points to tex2 (coordinate is the same)
-            test[0x156] = 0x4;
+            // -> 0x4~0x7 points to tex2 (coordinate is the same)
+            // -> 0x8 points to tex3 if tex3 is present. Otherwise went back to tex1.
+            // -> 0x9 is empty (maybe original tex3)
+            // seems 100 increase = 0x4 increase -> tex increment
+            // 0     100   1000  1100
+            // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
+            // font1 font2 font3 font4 font5 font6 font7
+            test[0x156] = 0x1c;
             // coordinate
             test[0x158] = 0x0;
             test[0x159] = 0x0;
@@ -117,14 +145,14 @@ namespace AllaganNode
             test[0x15c] = 0xff;
             test[0x15d] = 0xff;
 
-            SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("KrnAxis_120.fdt")];
+            //SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("KrnAxis_120.fdt")];
 
-            byte[] koTest = koMappingFile.ReadData();
+            //byte[] koTest = koMappingFile.ReadData();
 
             //Array.Copy(koTest, 0x150, test, 0x150, 0x10);
 
             File.WriteAllBytes(@"C:\Users\serap\Desktop\axis_12.fdt", test);
-            File.WriteAllBytes(@"C:\Users\serap\Desktop\KrnAxis_120.fdt", koTest);
+            //File.WriteAllBytes(@"C:\Users\serap\Desktop\KrnAxis_120.fdt", koTest);
 
             byte[] buffer = mappingFile.RepackData(origDat, test);
             mappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
@@ -138,7 +166,13 @@ namespace AllaganNode
             File.WriteAllBytes(outputIndexPath, index);
 
             UpdateDatHash(outputNewDatPath);
+
+            Dictionary<uint, Dictionary<uint, SqFile>> testing = readIndex(outputIndexPath, outputNewDatPath);
             
+            Console.WriteLine();
+            Console.WriteLine(testing[Hash.Compute("common/font")][Hash.Compute("font1.tex")].WrappedOffset.ToString());
+            Console.WriteLine(testing[Hash.Compute("common/font")][Hash.Compute("font8.tex")].WrappedOffset.ToString());
+
             /*
             SqFile fontFile = sqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
 

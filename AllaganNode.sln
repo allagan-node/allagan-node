@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganTextNode", "AllaganT
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FontPngDecoder", "FontPngDecoder\FontPngDecoder.csproj", "{11EB400A-27E4-4814-88C2-7F2FB5A1BF65}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndexRepack", "IndexRepack\IndexRepack.csproj", "{81910267-6EEE-4493-9D85-CD64B559092A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{11EB400A-27E4-4814-88C2-7F2FB5A1BF65}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{11EB400A-27E4-4814-88C2-7F2FB5A1BF65}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{11EB400A-27E4-4814-88C2-7F2FB5A1BF65}.Release|Any CPU.Build.0 = Release|Any CPU
+		{81910267-6EEE-4493-9D85-CD64B559092A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81910267-6EEE-4493-9D85-CD64B559092A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81910267-6EEE-4493-9D85-CD64B559092A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81910267-6EEE-4493-9D85-CD64B559092A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
