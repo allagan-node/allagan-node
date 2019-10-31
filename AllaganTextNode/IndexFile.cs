@@ -50,10 +50,8 @@ namespace IndexRepack
         public byte[] IndexHeader;
         public IndexDirectoryInfo[] DirectoryInfo;
 
-        public void ReadData(string indexPath)
+        public void ReadData(byte[] index)
         {
-            byte[] index = File.ReadAllBytes(indexPath);
-
             int sqPackHeaderLength = BitConverter.ToInt32(index, 0xc);
             SqPackHeader = new byte[sqPackHeaderLength];
             Array.Copy(index, 0, SqPackHeader, 0, sqPackHeaderLength);

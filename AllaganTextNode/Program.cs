@@ -8,6 +8,8 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text;
+using System.Xml.Serialization;
 
 namespace AllaganNode
 {
@@ -15,6 +17,11 @@ namespace AllaganNode
     {
         Unknown = 0,
         A4R4G4B4 = 0x1440
+    }
+
+    public class Test
+    {
+        public Dictionary<string, byte[]> TestDictionary { get; set; }
     }
 
     class Program
@@ -77,9 +84,10 @@ namespace AllaganNode
 
             string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
             File.Copy(glIndexPath, outputIndexPath, true);
-
+            byte[] index = File.ReadAllBytes(outputIndexPath);
+            /*
             IndexFile indexFile = new IndexFile();
-            indexFile.ReadData(outputIndexPath);
+            indexFile.ReadData(index);
 
             foreach (IndexDirectoryInfo directory in indexFile.DirectoryInfo)
             {
@@ -95,23 +103,151 @@ namespace AllaganNode
                 directory.FileInfo = files.ToArray();
             }
 
-            byte[] index = indexFile.RepackData(File.ReadAllBytes(outputIndexPath));
-
+            index = indexFile.RepackData(index);
+            */
             byte[] origDat = File.ReadAllBytes(glDatPath);
 
             string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
-            CreateNewDat(glDatPath, outputNewDatPath);
-            //File.Copy(koDatPath, outputNewDatPath, true);
+            //CreateNewDat(glDatPath, outputNewDatPath);
+            File.Copy(koDatPath, outputNewDatPath, true);
 
-            //SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font7.tex")];
-            //SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
+            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font7.tex")];
+            SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
 
-            //glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index, Hash.Compute("font8.tex"));
+            glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
 
-            SqFile mappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
-            //SqFile mappingFile = sqFiles[Hash.Compute("exd")][Hash.Compute("Achievement_0_en.exd")];
+            SqFile glMappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
+            SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("krnaxis_120.fdt")];
 
-            byte[] test = mappingFile.ReadData();
+            byte[] glMappingBytes = glMappingFile.ReadData();
+            byte[] koMappingBytes = koMappingFile.ReadData();
+
+            File.WriteAllBytes(Path.Combine(outputDir, "glMappingBytes"), glMappingBytes);
+            File.WriteAllBytes(Path.Combine(outputDir, "koMappingBytes"), koMappingBytes);
+
+            // hangul jamo -> 1100~11ff
+            // hangul compatibility jamo -> 3130~318f
+            // hangul jamo extended-a -> a960~a97f
+            // hangul syllables -> ac00-d7af
+            // hangul jamo extended-b -> d7b0~d7ff
+
+            // global range 0x40~0x1d9af
+            // korean range 0x40~0x309cf
+
+            Dictionary<string, byte[]> glRows = new Dictionary<string, byte[]>();
+
+            for (long i = 0x40; i <= 0x1d9af; i += 0x10)
+            {
+                byte[] row = new byte[0x10];
+                Array.Copy(glMappingBytes, i, row, 0, 0x10);
+
+                int j = 0;
+                for (j = 0; j < row.Length; j++)
+                {
+                    if (row[j] == 0) break;
+                }
+
+                byte[] utf = new byte[j];
+                Array.Copy(row, 0, utf, 0, j);
+                Array.Reverse(utf);
+
+                string key = Encoding.UTF8.GetString(utf);
+                if (!glRows.ContainsKey(key)) glRows.Add(key, row);
+            }
+
+            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "glRows"), false))
+            {
+                new XmlSerializer(typeof(string[])).Serialize(sw, glRows.Keys.ToArray());
+            }
+
+            Dictionary<string, byte[]> koRows = new Dictionary<string, byte[]>();
+            Dictionary<string, byte[]> diffRows = new Dictionary<string, byte[]>();
+
+            for (long i = 0x40; i <= 0x309cf; i += 0x10)
+            {
+                byte[] row = new byte[0x10];
+                Array.Copy(koMappingBytes, i, row, 0, 0x10);
+
+                int j = 0;
+                for (j = 0; j < row.Length; j++)
+                {
+                    if (row[j] == 0) break;
+                }
+
+                byte[] utf = new byte[j];
+                Array.Copy(row, 0, utf, 0, j);
+                Array.Reverse(utf);
+
+                string key = Encoding.UTF8.GetString(utf);
+                if (!koRows.ContainsKey(key)) koRows.Add(key, row);
+                if (!glRows.ContainsKey(key)) diffRows.Add(key, row);
+            }
+
+            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "koRows"), false))
+            {
+                new XmlSerializer(typeof(string[])).Serialize(sw, koRows.Keys.ToArray());
+            }
+
+            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "diffRows"), false))
+            {
+                new XmlSerializer(typeof(string[])).Serialize(sw, diffRows.Keys.ToArray());
+            }
+
+            /*foreach (string key in diffRows.Keys)
+            {
+                glRows.Add(key, diffRows[key]);
+            }*/
+
+            string[] orderedKeys = glRows.Keys.OrderBy(s => {
+                byte[] b = Encoding.UTF8.GetBytes(s);
+                byte[] p = new byte[4];
+                Array.Copy(b, 0, p, 0, b.Length);
+                Array.Reverse(p);
+                return BitConverter.ToUInt32(p, 0);
+            }).ToArray();
+
+            string newMappingPath = Path.Combine(outputDir, "newMapping");
+
+            byte[] mappingHeader = new byte[0x40];
+            Array.Copy(glMappingBytes, 0, mappingHeader, 0, 0x40);
+            File.WriteAllBytes(newMappingPath, mappingHeader);
+
+            using (FileStream fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
+            using (BinaryWriter bw = new BinaryWriter(fs))
+            {
+                foreach (string key in orderedKeys)
+                {
+                    bw.Write(glRows[key]);
+
+                    if (key == " ") bw.Write(new byte[] { 0x20, 0x0, 0x0, 0x0, 0x20, 0x0, 0x1, 0x0, 0xa1, 0x2, 0xc9, 0x1, 0x5, 0x10, 0xfe, 0x0 });
+                }
+            }
+
+            /*
+            byte[] test = new byte[0x10];
+            Array.Copy(koMappingBytes, 0x3b40, test, 0, 0x10);
+
+            byte[] test2 = new byte[3];
+            Array.Copy(test, 0, test2, 0, 3);
+            Array.Reverse(test2);
+            Console.WriteLine();
+            foreach (byte b in test2)
+            {
+                Console.WriteLine(b.ToString());
+            }
+            Console.WriteLine();
+            Console.WriteLine(Encoding.UTF8.GetString(test2));
+
+            byte[] test3 = Encoding.UTF8.GetBytes("가");
+
+            foreach (byte b in test3)
+            {
+                Console.WriteLine(b.ToString());
+            }
+
+            Console.WriteLine(Encoding.UTF8.GetString(test3));
+            Console.ReadLine();*/
+
             //test[0x154] = 0x31;
             //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
             //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
@@ -123,7 +259,7 @@ namespace AllaganNode
 
             // in the fdt header area there seems to be something that controls how the texture is loaded...
             // compare axis_12.fdt with krnaxis_120.fdt
-            
+
             // 0x0~0x3 -> unicode, big endian (flipped)
 
             // code page?
@@ -135,7 +271,7 @@ namespace AllaganNode
             // 0     100   1000  1100
             // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
             // font1 font2 font3 font4 font5 font6 font7
-            test[0x156] = 0x1c;
+            /*test[0x156] = 0x1c;
             // coordinate
             test[0x158] = 0x0;
             test[0x159] = 0x0;
@@ -143,35 +279,20 @@ namespace AllaganNode
             test[0x15b] = 0x0;
             //size
             test[0x15c] = 0xff;
-            test[0x15d] = 0xff;
+            test[0x15d] = 0xff;*/
 
-            //SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("KrnAxis_120.fdt")];
-
-            //byte[] koTest = koMappingFile.ReadData();
-
-            //Array.Copy(koTest, 0x150, test, 0x150, 0x10);
-
-            File.WriteAllBytes(@"C:\Users\serap\Desktop\axis_12.fdt", test);
-            //File.WriteAllBytes(@"C:\Users\serap\Desktop\KrnAxis_120.fdt", koTest);
-
-            byte[] buffer = mappingFile.RepackData(origDat, test);
-            mappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
+            byte[] repackedBuffer = glMappingFile.RepackData(origDat, glMappingBytes);
+            glMappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
 
             using (FileStream fs = new FileStream(outputNewDatPath, FileMode.Append, FileAccess.Write))
             using (BinaryWriter bw = new BinaryWriter(fs))
             {
-                bw.Write(buffer);
+                bw.Write(repackedBuffer);
             }
 
             File.WriteAllBytes(outputIndexPath, index);
 
             UpdateDatHash(outputNewDatPath);
-
-            Dictionary<uint, Dictionary<uint, SqFile>> testing = readIndex(outputIndexPath, outputNewDatPath);
-            
-            Console.WriteLine();
-            Console.WriteLine(testing[Hash.Compute("common/font")][Hash.Compute("font1.tex")].WrappedOffset.ToString());
-            Console.WriteLine(testing[Hash.Compute("common/font")][Hash.Compute("font8.tex")].WrappedOffset.ToString());
 
             /*
             SqFile fontFile = sqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
