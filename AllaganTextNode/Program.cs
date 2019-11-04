@@ -76,16 +76,13 @@ namespace AllaganNode
             string glDatPath = Path.Combine(globalDir, "000000.win32.dat0");
             string koDatPath = Path.Combine(koreanDir, "000000.win32.dat0");
 
-            Dictionary<uint, Dictionary<uint, SqFile>> glSqFiles = readIndex(glIndexPath, glDatPath);
-            Dictionary<uint, Dictionary<uint, SqFile>> koSqFiles = readIndex(koIndexPath, koDatPath);
-
             string outputDir = Path.Combine(baseDir, "output");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
             string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
             File.Copy(glIndexPath, outputIndexPath, true);
             byte[] index = File.ReadAllBytes(outputIndexPath);
-            /*
+            
             IndexFile indexFile = new IndexFile();
             indexFile.ReadData(index);
 
@@ -104,14 +101,18 @@ namespace AllaganNode
             }
 
             index = indexFile.RepackData(index);
-            */
+            File.WriteAllBytes(outputIndexPath, index);
+
+            Dictionary<uint, Dictionary<uint, SqFile>> glSqFiles = readIndex(outputIndexPath, glDatPath);
+            Dictionary<uint, Dictionary<uint, SqFile>> koSqFiles = readIndex(koIndexPath, koDatPath);
+
             byte[] origDat = File.ReadAllBytes(glDatPath);
 
             string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
             //CreateNewDat(glDatPath, outputNewDatPath);
             File.Copy(koDatPath, outputNewDatPath, true);
 
-            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font7.tex")];
+            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
             SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
 
             glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
@@ -136,7 +137,7 @@ namespace AllaganNode
 
             Dictionary<string, byte[]> glRows = new Dictionary<string, byte[]>();
 
-            for (long i = 0x40; i <= 0x1d9af; i += 0x10)
+            for (long i = 0x60; i <= 0x1d9c0; i += 0x10)
             {
                 byte[] row = new byte[0x10];
                 Array.Copy(glMappingBytes, i, row, 0, 0x10);
@@ -163,7 +164,7 @@ namespace AllaganNode
             Dictionary<string, byte[]> koRows = new Dictionary<string, byte[]>();
             Dictionary<string, byte[]> diffRows = new Dictionary<string, byte[]>();
 
-            for (long i = 0x40; i <= 0x309cf; i += 0x10)
+            for (long i = 0x60; i <= 0x309c0; i += 0x10)
             {
                 byte[] row = new byte[0x10];
                 Array.Copy(koMappingBytes, i, row, 0, 0x10);
@@ -193,10 +194,22 @@ namespace AllaganNode
                 new XmlSerializer(typeof(string[])).Serialize(sw, diffRows.Keys.ToArray());
             }
 
-            /*foreach (string key in diffRows.Keys)
+            foreach (string key in diffRows.Keys)
             {
-                glRows.Add(key, diffRows[key]);
-            }*/
+                byte[] modRow = new byte[0x10];
+                Array.Copy(diffRows[key], 0, modRow, 0, 0x10);
+                modRow[0x6] = 0x1;
+                modRow[0x7] = 0x0;
+                modRow[0x8] = 0x72;
+                modRow[0x9] = 0x0;
+                modRow[0xa] = 0xda;
+                modRow[0xb] = 0x1;
+                modRow[0xc] = 0x8;
+                modRow[0xd] = 0x10;
+                modRow[0xe] = 0x0;
+                modRow[0xf] = 0x0;
+                glRows.Add(key, modRow);
+            }
 
             string[] orderedKeys = glRows.Keys.OrderBy(s => {
                 byte[] b = Encoding.UTF8.GetBytes(s);
@@ -208,8 +221,8 @@ namespace AllaganNode
 
             string newMappingPath = Path.Combine(outputDir, "newMapping");
 
-            byte[] mappingHeader = new byte[0x40];
-            Array.Copy(glMappingBytes, 0, mappingHeader, 0, 0x40);
+            byte[] mappingHeader = new byte[0x60];
+            Array.Copy(glMappingBytes, 0, mappingHeader, 0, 0x60);
             File.WriteAllBytes(newMappingPath, mappingHeader);
 
             using (FileStream fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
@@ -218,70 +231,83 @@ namespace AllaganNode
                 foreach (string key in orderedKeys)
                 {
                     bw.Write(glRows[key]);
-
-                    if (key == " ") bw.Write(new byte[] { 0x20, 0x0, 0x0, 0x0, 0x20, 0x0, 0x1, 0x0, 0xa1, 0x2, 0xc9, 0x1, 0x5, 0x10, 0xfe, 0x0 });
                 }
             }
 
-            /*
-            byte[] test = new byte[0x10];
-            Array.Copy(koMappingBytes, 0x3b40, test, 0, 0x10);
+            byte[] mappingTail = new byte[0x430];
+            Array.Copy(glMappingBytes, 0x1d9d0, mappingTail, 0, 0x430);
 
-            byte[] test2 = new byte[3];
-            Array.Copy(test, 0, test2, 0, 3);
-            Array.Reverse(test2);
-            Console.WriteLine();
-            foreach (byte b in test2)
+            using (FileStream fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
+            using (BinaryWriter bw = new BinaryWriter(fs))
             {
-                Console.WriteLine(b.ToString());
-            }
-            Console.WriteLine();
-            Console.WriteLine(Encoding.UTF8.GetString(test2));
-
-            byte[] test3 = Encoding.UTF8.GetBytes("가");
-
-            foreach (byte b in test3)
-            {
-                Console.WriteLine(b.ToString());
+                bw.Write(mappingTail);
             }
 
-            Console.WriteLine(Encoding.UTF8.GetString(test3));
-            Console.ReadLine();*/
+            byte[] newMapping = File.ReadAllBytes(newMappingPath);
+            Array.Copy(BitConverter.GetBytes(newMapping.Length - 0x430), 0, newMapping, 0xc, 0x4);
+            Array.Copy(BitConverter.GetBytes((short)((newMapping.Length - 0x430 - 0x40) / 0x10)), 0, newMapping, 0x24, 0x2);
 
-            //test[0x154] = 0x31;
-            //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
-            //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
-            //test[0x15a] <-- when 0x159 goes over 0x3 this changes
-            //test[0x15b] <-- this also goes upto 0x3
-            //test[0x15c] = 0x6; -> width (on texture)
-            //test[0x15d] = 0x2; -> height (on texture)
-            // c~f looks like size-related thing.
+            File.WriteAllBytes(newMappingPath, newMapping);
 
-            // in the fdt header area there seems to be something that controls how the texture is loaded...
-            // compare axis_12.fdt with krnaxis_120.fdt
+                /*
+                byte[] test = new byte[0x10];
+                Array.Copy(koMappingBytes, 0x3b40, test, 0, 0x10);
 
-            // 0x0~0x3 -> unicode, big endian (flipped)
+                byte[] test2 = new byte[3];
+                Array.Copy(test, 0, test2, 0, 3);
+                Array.Reverse(test2);
+                Console.WriteLine();
+                foreach (byte b in test2)
+                {
+                    Console.WriteLine(b.ToString());
+                }
+                Console.WriteLine();
+                Console.WriteLine(Encoding.UTF8.GetString(test2));
 
-            // code page?
-            // -> 0x0~0x3 points to tex1
-            // -> 0x4~0x7 points to tex2 (coordinate is the same)
-            // -> 0x8 points to tex3 if tex3 is present. Otherwise went back to tex1.
-            // -> 0x9 is empty (maybe original tex3)
-            // seems 100 increase = 0x4 increase -> tex increment
-            // 0     100   1000  1100
-            // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
-            // font1 font2 font3 font4 font5 font6 font7
-            /*test[0x156] = 0x1c;
-            // coordinate
-            test[0x158] = 0x0;
-            test[0x159] = 0x0;
-            test[0x15a] = 0x0;
-            test[0x15b] = 0x0;
-            //size
-            test[0x15c] = 0xff;
-            test[0x15d] = 0xff;*/
+                byte[] test3 = Encoding.UTF8.GetBytes("가");
 
-            byte[] repackedBuffer = glMappingFile.RepackData(origDat, glMappingBytes);
+                foreach (byte b in test3)
+                {
+                    Console.WriteLine(b.ToString());
+                }
+
+                Console.WriteLine(Encoding.UTF8.GetString(test3));
+                Console.ReadLine();*/
+
+                //test[0x154] = 0x31;
+                //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
+                //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
+                //test[0x15a] <-- when 0x159 goes over 0x3 this changes
+                //test[0x15b] <-- this also goes upto 0x3
+                //test[0x15c] = 0x6; -> width (on texture)
+                //test[0x15d] = 0x2; -> height (on texture)
+                // c~f looks like size-related thing.
+
+                // in the fdt header area there seems to be something that controls how the texture is loaded...
+                // compare axis_12.fdt with krnaxis_120.fdt
+
+                // 0x0~0x3 -> unicode, big endian (flipped)
+
+                // code page?
+                // -> 0x0~0x3 points to tex1
+                // -> 0x4~0x7 points to tex2 (coordinate is the same)
+                // -> 0x8 points to tex3 if tex3 is present. Otherwise went back to tex1.
+                // -> 0x9 is empty (maybe original tex3)
+                // seems 100 increase = 0x4 increase -> tex increment
+                // 0     100   1000  1100
+                // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
+                // font1 font2 font3 font4 font5 font6 font7
+                newMapping[0x156] = 0x1b;
+                // coordinate
+                newMapping[0x158] = 0x0;
+                newMapping[0x159] = 0x0;
+                newMapping[0x15a] = 0x0;
+                newMapping[0x15b] = 0x0;
+                //size
+                newMapping[0x15c] = 0xff;
+                newMapping[0x15d] = 0xff;
+
+            byte[] repackedBuffer = glMappingFile.RepackData(origDat, newMapping);
             glMappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
 
             using (FileStream fs = new FileStream(outputNewDatPath, FileMode.Append, FileAccess.Write))
@@ -293,9 +319,8 @@ namespace AllaganNode
             File.WriteAllBytes(outputIndexPath, index);
 
             UpdateDatHash(outputNewDatPath);
-
             /*
-            SqFile fontFile = sqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
+            SqFile fontFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font7.tex")];
 
             using (FileStream fs = File.OpenRead(fontFile.DatPath))
             using (BinaryReader br = new BinaryReader(fs))
@@ -409,11 +434,12 @@ namespace AllaganNode
                             }
                         }
 
-                        image.Save(@"C:\Users\serap\Desktop\test2.png", System.Drawing.Imaging.ImageFormat.Png);
+                        image.Save(@"C:\Users\serap\Desktop\test.png", System.Drawing.Imaging.ImageFormat.Png);
                     }
                 }
                 
-            }*/
+            }
+            */
         }
 
         private static string previousLine;
