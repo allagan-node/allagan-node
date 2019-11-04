@@ -417,6 +417,42 @@ namespace AllaganNode
                     }
 
                     break;
+
+                    // testing
+                case "test":
+                    for (int i = 0; i < exHeaders.Length; i++)
+                    {
+                        foreach (ExDFile exDat in exHeaders[i].ExDats)
+                        {
+                            Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+
+                            string exDatOutDir = Path.Combine(outputDir, exDat.PhysicalDir);
+                            if (!Directory.Exists(exDatOutDir)) continue;
+
+                            string exDatOutPath = Path.Combine(exDatOutDir, exDat.LanguageCode);
+                            string exDatTestPath = exDatOutPath + ".test";
+
+                            using (MemoryStream ms = new MemoryStream(File.ReadAllBytes(exDatOutPath)))
+                            using (StreamReader sr = new StreamReader(ms))
+                            using (MemoryStream ms2 = new MemoryStream(File.ReadAllBytes(exDatTestPath)))
+                            using (StreamReader sr2 = new StreamReader(ms2))
+                            {
+                                while (sr.Peek() != -1)
+                                {
+                                    if (sr2.Peek() == -1) throw new Exception();
+
+                                    if (sr.ReadLine() != sr2.ReadLine()) throw new Exception();
+                                }
+
+                                if (sr2.Peek() != -1) throw new Exception();
+                            }
+                        }
+                    }
+
+                    Console.WriteLine();
+                    Console.WriteLine("DONE");
+                    Console.ReadLine();
+                    break;
             }
         }
 
