@@ -453,6 +453,13 @@ namespace AllaganNode
                     Console.WriteLine("DONE");
                     Console.ReadLine();
                     break;
+
+                // testing 2
+                case "test2":
+                    string test2 = Console.ReadLine();
+                    JObject test3 = JObject.Parse("{\"TagValue\":\"" + test2 + "\"}");
+                    File.WriteAllBytes(@"C:\Users\486238\Desktop\test", (byte[])test3["TagValue"]);
+                    break;
             }
         }
 
@@ -462,7 +469,7 @@ namespace AllaganNode
             {
                 foreach (ExDFile exDat in exHeaders[i].ExDats)
                 {
-                    Report(string.Format("{0} / {1}: {2}", i, exHeaders.Length, exDat.Name));
+                    Report(string.Format("{0} / {1}: {2}/{3}", i, exHeaders.Length, exDat.PhysicalDir, exDat.Name));
 
                     exDat.ExtractExD(outputDir);
                 }
