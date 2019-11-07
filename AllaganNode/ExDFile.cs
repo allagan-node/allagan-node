@@ -51,9 +51,17 @@ namespace AllaganNode
 
     public enum ExpressionType
     {
+        // >=
         GTE = 0xe0,
+        // <
+        LT = 0xe3,
+        // =
         Equal = 0xe4,
+
+        // parameters
         PlayerParameter = 0xe9,
+
+        // data types
         Byte = 0xf0,
         Int16 = 0xf2,
         Entry = 0xff
@@ -221,8 +229,7 @@ namespace AllaganNode
                 byte[] tagData = new byte[tag.Length - 2];
                 Array.Copy(tag, 2, tagData, 0, tagData.Length);
 
-                byte[] tail;
-                SplitByLength(ref tagData, out tail);
+                byte[] tail = SplitByLength(ref tagData);
 
                 // check tag closing byte.
                 if (tail[0] != 0x3) throw new Exception();
@@ -379,11 +386,15 @@ namespace AllaganNode
 
                 switch ((ExpressionType)payload[0])
                 {
+                    // followed by two expressions (left and right).
                     case ExpressionType.GTE:
+                    case ExpressionType.LT:
                     case ExpressionType.Equal:
+                        // left side could be an expression or raw value
                         JObject leftExpression = new JObject();
                         tail = ParseExpression(payload.Skip(1).ToArray(), leftExpression);
 
+                        // right side could be an expression or raw value
                         JObject rightExpression = new JObject();
                         tail = ParseExpression(tail, rightExpression);
 
@@ -392,6 +403,7 @@ namespace AllaganNode
                             new JProperty("Right", rightExpression));
                         break;
 
+                    // followed by one expression.
                     case ExpressionType.PlayerParameter:
                         JObject parameterValue = new JObject();
                         tail = ParseExpression(payload.Skip(1).ToArray(), parameterValue);
@@ -399,40 +411,37 @@ namespace AllaganNode
                         expressionValue.Value = parameterValue;
                         break;
 
+                    // followed by one byte.
                     case ExpressionType.Byte:
-                        expressionValue.Value = tail[0];
-                        _tail = new byte[tail.Length - 1];
-                        Array.Copy(tail, 1, _tail, 0, _tail.Length);
-                        tail = _tail;
+                        expressionValue.Value = payload[1];
+                        tail = payload.Skip(2).ToArray();
                         break;
 
+                    // followed by int16 (2 bytes).
                     case ExpressionType.Int16:
-                        expressionValue.Value = BitConverter.ToInt16(tail, 0);
-                        _tail = new byte[tail.Length - 2];
-                        Array.Copy(tail, 2, _tail, 0, _tail.Length);
-                        tail = _tail;
+                        expressionValue.Value = BitConverter.ToInt16(payload, 1);
+                        tail = payload.Skip(3).ToArray();
                         break;
 
+                    // followed by a whole entry.
                     case ExpressionType.Entry:
-                        SplitByLength(ref tail, out _tail);
+                        byte[] entry = payload.Skip(1).ToArray();
+                        tail = SplitByLength(ref entry);
 
                         JArray entryArray = new JArray();
-                        EncodeEntry(tail, entryArray);
-                        tail = _tail;
-
+                        EncodeEntry(entry, entryArray);
                         expressionValue.Value = entryArray;
                         break;
 
+                    // unknowns...
                     default:
                         Console.WriteLine();
-                        Console.WriteLine(new JObject(new JProperty("TEST", payload)));
+                        Console.WriteLine(new JObject(new JProperty("UNKNOWN", payload)));
                         throw new Exception();
                 }
 
                 expressionObject.Add(expressionValue);
             }
-
-            jObject.Add(expressionValue);
 
             return tail;
         }
@@ -440,7 +449,7 @@ namespace AllaganNode
         private JObject CreateTagJObject(byte tagType, byte[] tagData)
         {
             byte[] tail;
-            byte[] _tail;
+
             JObject jObject = new JObject(
                 new JProperty("TagType", ((TagType)tagType).ToString()));
             
@@ -496,10 +505,21 @@ namespace AllaganNode
                 case TagType.Time:
                     break;
 
+                // if statement
                 case TagType.If:
-                    JObject conditionExpression = ParseExpression(tagData, out tail);
-                    JObject trueExpression = ParseExpression(tail, out _tail);
-                    JObject falseExpression = ParseExpression(_tail, out tail);
+                    // starts with expression that denotes condition for the if statement.
+                    JObject conditionExpression = new JObject();
+                    tail = ParseExpression(tagData, conditionExpression);
+
+                    // followed by expression that will show up when condition is true.
+                    JObject trueExpression = new JObject();
+                    tail = ParseExpression(tail, trueExpression);
+
+                    // followed by expression that will show up when condition is false.
+                    JObject falseExpression = new JObject();
+                    tail = ParseExpression(tail, falseExpression);
+                    
+                    // there should not be any tag data left...
                     if (tail.Length != 0) throw new Exception();
 
                     jObject.Add(new JProperty("TagValue", new JObject(
@@ -614,6 +634,7 @@ namespace AllaganNode
                     break;
             }
 
+            // I'm skipping unknown tag types for now, but will have to work on this at some point...
             jObject.Add(new JProperty("TagValue", tagData));
             return jObject;
 
