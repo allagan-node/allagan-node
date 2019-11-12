@@ -53,17 +53,28 @@ namespace AllaganNode
     {
         // >=
         GTE = 0xe0,
+        // >
+        GT = 0xe1,
+        // >=
+        LTE = 0xe2,
         // <
         LT = 0xe3,
         // =
         Equal = 0xe4,
+        // !=
+        NotEqual = 0xe5,
 
-        // parameters
-        PlayerParameter = 0xe9,
+        // keys
+        IntegerKey = 0xe8,
+        PlayerKey = 0xe9,
+        InstanceKey = 0xeb,
 
         // data types
         Byte = 0xf0,
-        Int16 = 0xf2,
+        Int16F2 = 0xf2,
+        Int16F4 = 0xf4,
+        Int24 = 0xf6,
+        Int32 = 0xfe,
         Entry = 0xff
     }
 
@@ -388,8 +399,11 @@ namespace AllaganNode
                 {
                     // followed by two expressions (left and right).
                     case ExpressionType.GTE:
+                    case ExpressionType.GT:
+                    case ExpressionType.LTE:
                     case ExpressionType.LT:
                     case ExpressionType.Equal:
+                    case ExpressionType.NotEqual:
                         // left side could be an expression or raw value
                         JObject leftExpression = new JObject();
                         tail = ParseExpression(payload.Skip(1).ToArray(), leftExpression);
@@ -404,7 +418,9 @@ namespace AllaganNode
                         break;
 
                     // followed by one expression.
-                    case ExpressionType.PlayerParameter:
+                    case ExpressionType.IntegerKey:
+                    case ExpressionType.PlayerKey:
+                    case ExpressionType.InstanceKey:
                         JObject parameterValue = new JObject();
                         tail = ParseExpression(payload.Skip(1).ToArray(), parameterValue);
 
@@ -418,9 +434,35 @@ namespace AllaganNode
                         break;
 
                     // followed by int16 (2 bytes).
-                    case ExpressionType.Int16:
-                        expressionValue.Value = BitConverter.ToInt16(payload, 1);
+                    case ExpressionType.Int16F2:
+                    case ExpressionType.Int16F4:
+                        byte[] int16 = new byte[2];
+                        Array.Copy(payload, 1, int16, 0, 2);
+                        // reverse it if bitconverter is little endian.
+                        if (BitConverter.IsLittleEndian) Array.Reverse(int16);
+                        expressionValue.Value = BitConverter.ToInt16(int16, 0);
                         tail = payload.Skip(3).ToArray();
+                        break;
+
+                    // followed by int24 (3 bytes).
+                    case ExpressionType.Int24:
+                        byte[] int24 = new byte[4];
+                        // pad 0 in front so that it can be converted to int32.
+                        int24[0] = 0;
+                        Array.Copy(payload, 1, int24, 1, 3);
+                        if (BitConverter.IsLittleEndian) Array.Reverse(int24);
+
+                        expressionValue.Value = BitConverter.ToInt32(int24, 0);
+                        tail = payload.Skip(4).ToArray();
+                        break;
+
+                    // followed by int32 (4 bytes).
+                    case ExpressionType.Int32:
+                        byte[] int32 = new byte[4];
+                        Array.Copy(payload, 1, int32, 0, 4);
+                        if (BitConverter.IsLittleEndian) Array.Reverse(int32);
+                        expressionValue.Value = BitConverter.ToInt32(int32, 0);
+                        tail = payload.Skip(5).ToArray();
                         break;
 
                     // followed by a whole entry.
