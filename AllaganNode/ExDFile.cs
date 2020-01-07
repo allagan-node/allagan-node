@@ -7,58 +7,6 @@ using System.Text;
 
 namespace AllaganNode
 {
-    public enum TagType
-    {
-        DayAndHour = 0x6,
-        Time = 0x7,
-        If = 0x8,
-        Switch = 0x9,
-        IfEquals = 0xc,
-        UnknownA = 0xa,
-        LineBreak = 0x10,
-        Gui = 0x12,
-        Color = 0x13,
-        Unknown14 = 0x14,
-        SoftHyphen = 0x16,
-        Unknown17 = 0x17,
-        Emphasis19 = 0x19,
-        Emphasis1A = 0x1a,
-        Indent = 0x1d,
-        CommandIcon = 0x1e,
-        Dash = 0x1f,
-        Value = 0x20,
-        Format = 0x22,
-        PadDigits = 0x24,
-        Unknown26 = 0x26,
-        Sheet = 0x28,
-        Highlight = 0x29,
-        Clickable = 0x2b,
-        Split = 0x2c,
-        Unknown2D = 0x2d,
-        Fixed = 0x2e,
-        Unknown2F = 0x2f,
-        SheetJa = 0x30,
-        SheetEn = 0x31,
-        SheetDe = 0x32,
-        SheetFr = 0x33,
-        InstanceContent = 0x40,
-        UiForeground = 0x48,
-        UiGlow = 0x49,
-        Padded = 0x50,
-        Unknown51 = 0x51,
-        Unknown60 = 0x60
-    }
-
-    public enum ExpressionType
-    {
-        GTE = 0xe0,
-        Equal = 0xe4,
-        PlayerParameter = 0xe9,
-        Byte = 0xf0,
-        Int16 = 0xf2,
-        Entry = 0xff
-    }
-
     public class ExDChunk
     {
         public int Key;
@@ -83,7 +31,7 @@ namespace AllaganNode
             foreach (ushort fieldKey in Fields.Keys)
             {
                 JArray entryArray = new JArray();
-                EncodeEntry(Fields[fieldKey], entryArray);
+                EncodeField(Fields[fieldKey], entryArray);
 
                 jArray.Add(new JObject(
                     new JProperty("FieldKey", fieldKey),
@@ -93,37 +41,37 @@ namespace AllaganNode
             return jObject;
         }
 
-        // encode bytes into legible json entry object.
-        private void EncodeEntry(byte[] entry, JArray jArray)
+        // encode bytes into legible json field object.
+        private void EncodeField(byte[] field, JArray jArray)
         {
-            if (entry.Length == 0) return;
+            if (field.Length == 0) return;
 
             // if no tags, just encode it with UTF8.
-            if (!entry.Contains((byte)0x2))
+            if (!field.Contains((byte)0x2))
             {
                 jArray.Add(new JObject(
-                    new JProperty("EntryType", "Text"),
-                    new JProperty("EntryValue", new UTF8Encoding(false).GetString(entry))));
+                    new JProperty("EntryType", "text"),
+                    new JProperty("EntryValue", new UTF8Encoding(false).GetString(field))));
             }
             else
             {
-                int tagIndex = Array.FindIndex(entry, b => b == 0x2);
+                int tagIndex = Array.FindIndex(field, b => b == 0x2);
 
                 // if start byte is opening of tag, treat it as tag.
                 if (tagIndex == 0)
                 {
-                    EncodeTag(entry, jArray);
+                    EncodeTag(field, jArray);
                 }
                 // divide text part and tag part.
                 else
                 {
                     byte[] head = new byte[tagIndex];
-                    Array.Copy(entry, 0, head, 0, tagIndex);
+                    Array.Copy(field, 0, head, 0, tagIndex);
 
-                    byte[] tag = new byte[entry.Length - tagIndex];
-                    Array.Copy(entry, tagIndex, tag, 0, tag.Length);
+                    byte[] tag = new byte[field.Length - tagIndex];
+                    Array.Copy(field, tagIndex, tag, 0, tag.Length);
 
-                    EncodeEntry(head, jArray);
+                    EncodeField(head, jArray);
                     EncodeTag(tag, jArray);
                 }
             }
@@ -134,10 +82,10 @@ namespace AllaganNode
         {
             if (tag.Length == 0) return;
 
-            // if start byte is not opening of tag, treat it as entry.
+            // if start byte is not opening of tag, treat it as field.
             if (tag[0] != 0x2)
             {
-                EncodeEntry(tag, jArray);
+                EncodeField(tag, jArray);
             }
             else
             {
@@ -221,25 +169,23 @@ namespace AllaganNode
                 byte[] tagData = new byte[tag.Length - 2];
                 Array.Copy(tag, 2, tagData, 0, tagData.Length);
 
-                byte[] tail;
-                SplitByLength(ref tagData, out tail);
+                byte[] tail = new byte[0];
+
+                SplitByLength(ref tagData, ref tail);
 
                 // check tag closing byte.
                 if (tail[0] != 0x3) throw new Exception();
 
-                jArray.Add(new JObject(
-                    new JProperty("EntryType", "Tag"),
-                    new JProperty("EntryValue", CreateTagJObject(tagType, tagData))));
+                jArray.Add(CreateTagJObject(tagType, tagData));
 
-                // remaining entry after tag closing byte
-                byte[] entry = new byte[tail.Length - 1];
-                Array.Copy(tail, 1, entry, 0, entry.Length);
-                EncodeEntry(entry, jArray);
+                byte[] field = new byte[tail.Length - 1];
+                Array.Copy(tail, 1, field, 0, field.Length);
+                EncodeField(field, jArray);
             }
         }
 
         // Parses length byte and splits the given data.
-        private byte[] SplitByLength(ref byte[] tag)
+        private void SplitByLength(ref byte[] tag, ref byte[] tail)
         {
             // [0] -> byte (type of length)
             // [..] -> length data (depending on type of length)
@@ -247,7 +193,6 @@ namespace AllaganNode
 
             byte lengthType = tag[0];
             byte[] tagData;
-            byte[] tail;
 
             if (lengthType < 0xf0)
             {
@@ -316,8 +261,6 @@ namespace AllaganNode
             else throw new Exception();
 
             tag = tagData;
-
-            return tail;
         }
 
         // Recursively parse tag to encode any fields that may be embedded inside.
@@ -344,12 +287,13 @@ namespace AllaganNode
                 // field tag has to be split by length byte.
                 byte[] field = new byte[tag.Length - fieldIndex - 1];
                 Array.Copy(tag, fieldIndex + 1, field, 0, field.Length);
+                byte[] tail = new byte[0];
 
-                byte[] tail = SplitByLength(ref field);
+                SplitByLength(ref field, ref tail);
 
                 // now treat it as full-blown field.
                 JArray fieldArray = new JArray();
-                EncodeEntry(field, fieldArray);
+                EncodeField(field, fieldArray);
                 jArray.Add(new JObject(
                     new JProperty("TokenType", "field"),
                     new JProperty("TokenValue", fieldArray)));
@@ -359,265 +303,67 @@ namespace AllaganNode
             }
         }
 
-        private byte[] ParseExpression(byte[] payload, JObject expressionObject)
-        {
-            byte[] tail;
-
-            // payload just contains normal byte value
-            if (payload[0] < 0xe0)
-            {
-                expressionObject.Add(new JProperty("ExpressionType", "Raw"));
-                expressionObject.Add(new JProperty("ExpressionValue", payload[0]));
-
-                tail = payload.Skip(1).ToArray();
-            }
-            else
-            {
-                expressionObject.Add(new JProperty("ExpressionType", ((ExpressionType)payload[0]).ToString()));
-
-                JProperty expressionValue = new JProperty("ExpressionValue", null);
-
-                switch ((ExpressionType)payload[0])
-                {
-                    case ExpressionType.GTE:
-                    case ExpressionType.Equal:
-                        JObject leftExpression = new JObject();
-                        tail = ParseExpression(payload.Skip(1).ToArray(), leftExpression);
-
-                        JObject rightExpression = new JObject();
-                        tail = ParseExpression(tail, rightExpression);
-
-                        expressionValue.Value = new JObject(
-                            new JProperty("Left", leftExpression),
-                            new JProperty("Right", rightExpression));
-                        break;
-
-                    case ExpressionType.PlayerParameter:
-                        JObject parameterValue = new JObject();
-                        tail = ParseExpression(payload.Skip(1).ToArray(), parameterValue);
-
-                        expressionValue.Value = parameterValue;
-                        break;
-
-                    case ExpressionType.Byte:
-                        expressionValue.Value = tail[0];
-                        _tail = new byte[tail.Length - 1];
-                        Array.Copy(tail, 1, _tail, 0, _tail.Length);
-                        tail = _tail;
-                        break;
-
-                    case ExpressionType.Int16:
-                        expressionValue.Value = BitConverter.ToInt16(tail, 0);
-                        _tail = new byte[tail.Length - 2];
-                        Array.Copy(tail, 2, _tail, 0, _tail.Length);
-                        tail = _tail;
-                        break;
-
-                    case ExpressionType.Entry:
-                        SplitByLength(ref tail, out _tail);
-
-                        JArray entryArray = new JArray();
-                        EncodeEntry(tail, entryArray);
-                        tail = _tail;
-
-                        expressionValue.Value = entryArray;
-                        break;
-
-                    default:
-                        Console.WriteLine();
-                        Console.WriteLine(new JObject(new JProperty("TEST", payload)));
-                        throw new Exception();
-                }
-
-                expressionObject.Add(expressionValue);
-            }
-
-            jObject.Add(expressionValue);
-
-            return tail;
-        }
-
         private JObject CreateTagJObject(byte tagType, byte[] tagData)
         {
-            byte[] tail;
-            byte[] _tail;
-            JObject jObject = new JObject(
-                new JProperty("TagType", ((TagType)tagType).ToString()));
-            
-            // parse tags
-            switch ((TagType)tagType)
+            switch (tagType)
             {
-                // this tag contains day and hour info
-                case TagType.DayAndHour:
-                    if (tagData.Length == 0 || tagData.Length > 2) throw new Exception();
-
-                    JObject dayAndHour = new JObject();
-
-                    // first bit is hour
-                    int hour = tagData[0] - 1;
-                    dayAndHour.Add(new JProperty("Hour", hour));
-
-                    // second bit is day
-                    if (tagData.Length == 2)
-                    {
-                        string day = string.Empty;
-
-                        switch (tagData[1] % 7)
-                        {
-                            case 0:
-                                day = "Saturday";
-                                break;
-                            case 1:
-                                day = "Sunday";
-                                break;
-                            case 2:
-                                day = "Monday";
-                                break;
-                            case 3:
-                                day = "Tuesday";
-                                break;
-                            case 4:
-                                day = "Wednesday";
-                                break;
-                            case 5:
-                                day = "Thursday";
-                                break;
-                            case 6:
-                                day = "Friday";
-                                break;
-                        }
-
-                        dayAndHour.Add(new JProperty("Day", day));
-                    }
-
-                    jObject.Add(new JProperty("TagValue", dayAndHour));
-                    return jObject;
-
-                case TagType.Time:
+                case 0x6:
+                    // reset time
                     break;
 
-                case TagType.If:
-                    JObject conditionExpression = ParseExpression(tagData, out tail);
-                    JObject trueExpression = ParseExpression(tail, out _tail);
-                    JObject falseExpression = ParseExpression(_tail, out tail);
-                    if (tail.Length != 0) throw new Exception();
-
-                    jObject.Add(new JProperty("TagValue", new JObject(
-                        new JProperty("Condition", conditionExpression),
-                        new JProperty("True", trueExpression),
-                        new JProperty("False", falseExpression))));
-                    return jObject;
-
-                case TagType.Switch:
+                case 0x7:
+                    // time
                     break;
 
-                case TagType.IfEquals:
+                case 0x8:
+                    // if
                     break;
 
-                case TagType.UnknownA:
+                case 0x9:
+                    // switch
                     break;
 
-                case TagType.LineBreak:
+                case 0xc:
+                    // if equals
                     break;
 
-                case TagType.Gui:
+                case 0xa:
+                    // unknown
                     break;
 
-                case TagType.Color:
+                case 0x10:
+                    // line break
                     break;
 
-                case TagType.Unknown14:
+                case 0x12:
+                    // gui
                     break;
 
-                case TagType.SoftHyphen:
+                case 0x13:
+                    // color
                     break;
 
-                case TagType.Unknown17:
-                    break;
-
-                case TagType.Emphasis19:
-                    break;
-
-                case TagType.Emphasis1A:
-                    break;
-
-                case TagType.Indent:
-                    break;
-
-                case TagType.CommandIcon:
-                    break;
-
-                case TagType.Dash:
-                    break;
-
-                case TagType.Value:
-                    break;
-
-                case TagType.Format:
-                    break;
-
-                case TagType.PadDigits:
-                    break;
-
-                case TagType.Unknown26:
-                    break;
-
-                case TagType.Sheet:
-                    break;
-
-                case TagType.Highlight:
-                    break;
-
-                case TagType.Clickable:
-                    break;
-
-                case TagType.Split:
-                    break;
-
-                case TagType.Unknown2D:
-                    break;
-
-                case TagType.Fixed:
-                    break;
-
-                case TagType.Unknown2F:
-                    break;
-
-                case TagType.SheetJa:
-                    break;
-
-                case TagType.SheetEn:
-                    break;
-
-                case TagType.SheetDe:
-                    break;
-
-                case TagType.SheetFr:
-                    break;
-
-                case TagType.InstanceContent:
-                    break;
-
-                case TagType.UiForeground:
-                    break;
-
-                case TagType.UiGlow:
-                    break;
-
-                case TagType.Padded:
-                    break;
-
-                case TagType.Unknown51:
-                    break;
-
-                case TagType.Unknown60:
+                case 0x14:
+                    // unknown
                     break;
             }
+            JArray tags = new JArray();
+            ParseTag(tagData, tags);
 
-            jObject.Add(new JProperty("TagValue", tagData));
-            return jObject;
+            /*if (tagType == 0x8)
+            {
+                File.WriteAllBytes(@"C:\Users\486238\Desktop\test", tagData);
+                Console.WriteLine();
+                Console.WriteLine("TEST");
+                Console.ReadLine();
+            }*/
 
-            throw new Exception();
+            // TODO: recursive decoding inside tag for 0xff decoding byte.
+            return new JObject(
+                new JProperty("EntryType", "tag"),
+                new JProperty("EntryValue", new JObject(
+                    new JProperty("TagType", tagType),
+                    new JProperty("TagValue", tags))));
         }
 
         // load from json
