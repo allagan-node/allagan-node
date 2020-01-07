@@ -454,11 +454,11 @@ namespace AllaganNode
                     Console.ReadLine();
                     break;
 
-                // write out encoded bytes
-                case "write":
+                // testing 2
+                case "test2":
                     string test2 = Console.ReadLine();
                     JObject test3 = JObject.Parse("{\"TagValue\":\"" + test2 + "\"}");
-                    File.WriteAllBytes(Path.Combine(outputDir, "test"), (byte[])test3["TagValue"]);
+                    File.WriteAllBytes(@"C:\Users\486238\Desktop\test", (byte[])test3["TagValue"]);
                     break;
             }
         }
