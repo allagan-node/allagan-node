@@ -89,7 +89,6 @@ namespace AllaganNode
             }
             else
             {
-                /*
                 // [0] -> 0x2 (opening of tag)
                 // [1] -> byte (type of tag)
                 // [2] -> byte (type of length)
@@ -161,209 +160,18 @@ namespace AllaganNode
 
                 byte[] field = new byte[tag.Length - totalLength];
                 Array.Copy(tag, totalLength, field, 0, field.Length);
-                EncodeField(field, jArray);*/
-
-                byte tagType = tag[1];
-
-                // length byte + tag
-                byte[] tagData = new byte[tag.Length - 2];
-                Array.Copy(tag, 2, tagData, 0, tagData.Length);
-
-                byte[] tail = new byte[0];
-
-                SplitByLength(ref tagData, ref tail);
-
-                // check tag closing byte.
-                if (tail[0] != 0x3) throw new Exception();
-
-                jArray.Add(CreateTagJObject(tagType, tagData));
-
-                byte[] field = new byte[tail.Length - 1];
-                Array.Copy(tail, 1, field, 0, field.Length);
                 EncodeField(field, jArray);
-            }
-        }
-
-        // Parses length byte and splits the given data.
-        private void SplitByLength(ref byte[] tag, ref byte[] tail)
-        {
-            // [0] -> byte (type of length)
-            // [..] -> length data (depending on type of length)
-            // [..length..] -> data
-
-            byte lengthType = tag[0];
-            byte[] tagData;
-
-            if (lengthType < 0xf0)
-            {
-                // length type itself is a length, including the length type byte itself.
-                // total length -> length type - 1
-                tagData = new byte[lengthType - 1];
-                Array.Copy(tag, 1, tagData, 0, lengthType - 1);
-
-                tail = new byte[tag.Length - lengthType];
-                Array.Copy(tag, lengthType, tail, 0, tail.Length);
-            }
-            else if (lengthType == 0xf0)
-            {
-                // trailing byte is the length.
-                // [0] + [length byte] + (length byte = [...data...])
-                tagData = new byte[tag[1]];
-                Array.Copy(tag, 2, tagData, 0, tag[1]);
-
-                tail = new byte[tag.Length - tag[1] - 2];
-                Array.Copy(tag, tag[1] + 2, tail, 0, tail.Length);
-            }
-            else if (lengthType == 0xf1)
-            {
-                // trailing byte * 256 is the length.
-                // [0] + [length byte] + (length byte * 256 = [...data...])
-                int length = tag[1] * 256;
-                tagData = new byte[length];
-                Array.Copy(tag, 2, tagData, 0, length);
-
-                tail = new byte[tag.Length - length - 2];
-                Array.Copy(tag, length + 2, tail, 0, tail.Length);
-            }
-            else if (lengthType == 0xf2)
-            {
-                // (trailing byte << 8) + (next byte) is the length. (int16)
-                // [0] + [l1] + [l2] + ([...data...])
-                int length = (tag[1] << 8) + tag[2];
-                tagData = new byte[length];
-                Array.Copy(tag, 3, tagData, 0, length);
-
-                tail = new byte[tag.Length - length - 3];
-                Array.Copy(tag, length + 3, tail, 0, tail.Length);
-            }
-            else if (lengthType == 0xf3)
-            {
-                // (trailing byte << 16) + (next byte << 8) + (next byte) is the length. (int24)
-                // [0] + [l1] + [l2] + [l3] + ([...data...])
-                int length = (tag[1] << 16) + (tag[2] << 8) + tag[3];
-                tagData = new byte[length];
-                Array.Copy(tag, 4, tagData, 0, length);
-
-                tail = new byte[tag.Length - length - 4];
-                Array.Copy(tag, length + 4, tail, 0, tail.Length);
-            }
-            else if (lengthType == 0xf4)
-            {
-                // (trailing byte << 24) + (next byte << 16) + (next byte << 8) + (next byte) is the length. (int32)
-                // [0] + [l1] + [l2] + [l3] + [l4] + ([...data...])
-                int length = (tag[1] << 24) + (tag[2] << 16) + (tag[3] << 8) + tag[4];
-                tagData = new byte[length];
-                Array.Copy(tag, 5, tagData, 0, length);
-
-                tail = new byte[tag.Length - length - 5];
-                Array.Copy(tag, length + 5, tail, 0, tail.Length);
-            }
-            else throw new Exception();
-
-            tag = tagData;
-        }
-
-        // Recursively parse tag to encode any fields that may be embedded inside.
-        private void ParseTag(byte[] tag, JArray jArray)
-        {
-            if (tag.Length == 0) return;
-
-            // if tag doesn't contain any field tag, just add it to array and return.
-            if (!tag.Contains((byte)0xff))
-            {
-                jArray.Add(new JObject(
-                    new JProperty("TokenType", "data"),
-                    new JProperty("TokenValue", tag)));
-            }
-            else
-            {
-                int fieldIndex = Array.FindIndex(tag, b => b == 0xff);
-
-                // head would be tag data which we can add directly.
-                byte[] head = new byte[fieldIndex];
-                Array.Copy(tag, 0, head, 0, fieldIndex);
-                ParseTag(head, jArray);
-
-                // field tag has to be split by length byte.
-                byte[] field = new byte[tag.Length - fieldIndex - 1];
-                Array.Copy(tag, fieldIndex + 1, field, 0, field.Length);
-                byte[] tail = new byte[0];
-
-                SplitByLength(ref field, ref tail);
-
-                // now treat it as full-blown field.
-                JArray fieldArray = new JArray();
-                EncodeField(field, fieldArray);
-                jArray.Add(new JObject(
-                    new JProperty("TokenType", "field"),
-                    new JProperty("TokenValue", fieldArray)));
-
-                // parse the rest of the tag.
-                ParseTag(tail, jArray);
             }
         }
 
         private JObject CreateTagJObject(byte tagType, byte[] tagData)
         {
-            switch (tagType)
-            {
-                case 0x6:
-                    // reset time
-                    break;
-
-                case 0x7:
-                    // time
-                    break;
-
-                case 0x8:
-                    // if
-                    break;
-
-                case 0x9:
-                    // switch
-                    break;
-
-                case 0xc:
-                    // if equals
-                    break;
-
-                case 0xa:
-                    // unknown
-                    break;
-
-                case 0x10:
-                    // line break
-                    break;
-
-                case 0x12:
-                    // gui
-                    break;
-
-                case 0x13:
-                    // color
-                    break;
-
-                case 0x14:
-                    // unknown
-                    break;
-            }
-            JArray tags = new JArray();
-            ParseTag(tagData, tags);
-
-            /*if (tagType == 0x8)
-            {
-                File.WriteAllBytes(@"C:\Users\486238\Desktop\test", tagData);
-                Console.WriteLine();
-                Console.WriteLine("TEST");
-                Console.ReadLine();
-            }*/
-
             // TODO: recursive decoding inside tag for 0xff decoding byte.
             return new JObject(
                 new JProperty("EntryType", "tag"),
                 new JProperty("EntryValue", new JObject(
                     new JProperty("TagType", tagType),
-                    new JProperty("TagValue", tags))));
+                    new JProperty("TagValue", tagData))));
         }
 
         // load from json
