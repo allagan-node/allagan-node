@@ -3,13 +3,15 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.29215.179
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganNode", "AllaganNode\AllaganNode.csproj", "{E852540E-5B50-4150-8532-3F61CBA700A8}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganTextNode", "AllaganTextNode\AllaganTextNode.csproj", "{3F0C7570-B518-4463-B9BD-1BAB34FC834F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FontPngDecoder", "FontPngDecoder\FontPngDecoder.csproj", "{11EB400A-27E4-4814-88C2-7F2FB5A1BF65}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IndexRepack", "IndexRepack\IndexRepack.csproj", "{81910267-6EEE-4493-9D85-CD64B559092A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganNode-Backup", "AllaganNode-Backup\AllaganNode-Backup.csproj", "{E852540E-5B50-4150-8532-3F61CBA700A8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AllaganNode", "AllaganNode\AllaganNode.csproj", "{BDD18BD3-2A6D-4539-A4B6-1823C1CFB074}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,10 +19,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.Build.0 = Release|Any CPU
 		{3F0C7570-B518-4463-B9BD-1BAB34FC834F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{3F0C7570-B518-4463-B9BD-1BAB34FC834F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{3F0C7570-B518-4463-B9BD-1BAB34FC834F}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -33,6 +31,14 @@ Global
 		{81910267-6EEE-4493-9D85-CD64B559092A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{81910267-6EEE-4493-9D85-CD64B559092A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{81910267-6EEE-4493-9D85-CD64B559092A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E852540E-5B50-4150-8532-3F61CBA700A8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BDD18BD3-2A6D-4539-A4B6-1823C1CFB074}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BDD18BD3-2A6D-4539-A4B6-1823C1CFB074}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BDD18BD3-2A6D-4539-A4B6-1823C1CFB074}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BDD18BD3-2A6D-4539-A4B6-1823C1CFB074}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
