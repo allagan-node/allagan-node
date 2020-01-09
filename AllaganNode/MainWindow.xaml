@@ -10,7 +10,7 @@
         <SolidColorBrush Opacity="0" Color="White"/>
     </Window.Background>
     <StackPanel>
-        <TextBlock Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
+        <TextBlock x:Name="TitleTextBlock" Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
         <Image Height="360" Width="880" Source="/Resources/Logo.jpg"/>
         <ProgressBar Height="10" Width="880" Value="50"/>
         <TextBlock Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
