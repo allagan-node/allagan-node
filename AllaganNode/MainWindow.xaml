@@ -5,14 +5,13 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:AllaganNode"
         mc:Ignorable="d"
-        Title="Allagan Node" Height="402" Width="880" WindowStyle="None" AllowsTransparency="True" Icon="/Resources/SplashScreen.png" ResizeMode="NoResize" WindowStartupLocation="CenterScreen">
+        Title="Allagan Node" Height="100" Width="100" WindowStyle="ToolWindow" Icon="/Resources/SplashScreen.png" ResizeMode="NoResize" WindowStartupLocation="CenterScreen" SizeToContent="WidthAndHeight">
     <Window.Background>
         <SolidColorBrush Opacity="0" Color="White"/>
     </Window.Background>
     <StackPanel>
-        <TextBlock x:Name="TitleTextBlock" Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
         <Image Height="360" Width="880" Source="/Resources/Logo.jpg"/>
-        <ProgressBar Height="10" Width="880" Value="50"/>
-        <TextBlock Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
+        <ProgressBar x:Name="MainProgressBar" Height="10" Width="880" Value="50" Background="#FF323232" BorderBrush="#FF323232" Foreground="#FF32C832"/>
+        <TextBlock x:Name="StatusTextBlock" Text="Allagan Node" TextWrapping="Wrap" Background="#FF323232" Foreground="#FFC8C8C8" VerticalAlignment="Center"/>
     </StackPanel>
 </Window>

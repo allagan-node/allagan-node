@@ -25,7 +25,7 @@ namespace AllaganNode
         {
             InitializeComponent();
 
-            TitleTextBlock.Text = "Allagan Node " + Assembly.GetExecutingAssembly().GetName().Version.ToString();
+            Title = "Allagan Node " + Assembly.GetExecutingAssembly().GetName().Version.ToString();
         }
     }
 }
