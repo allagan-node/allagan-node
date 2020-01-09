@@ -1,6 +1,0 @@
-language: csharp
-os: windows
-mono: none
-dotnet: 3.1.100
-script:
-- dotnet build ./AllaganNode/AllaganNode.csproj --configuration Release
