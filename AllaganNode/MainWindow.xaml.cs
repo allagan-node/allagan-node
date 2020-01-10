@@ -1,4 +1,5 @@
-﻿using System.Globalization;
+﻿using System;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -6,6 +7,7 @@ using System.Threading;
 using System.Windows;
 using AllaganNode.Properties;
 using AllaganNode.UI;
+using Microsoft.Win32;
 
 namespace AllaganNode
 {
@@ -55,8 +57,45 @@ namespace AllaganNode
                     if (CheckRequiredFiles(Settings.Default.GlobalDir))
                         return;
 
-            MessageBox.Show(Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion,
-                Properties.Resources.ProgramTitle, MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (MessageBox.Show(Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion,
+                    Properties.Resources.ProgramTitle, MessageBoxButton.YesNo, MessageBoxImage.Question) ==
+                MessageBoxResult.Yes)
+                if (DetectGlobalDir())
+                    MessageBox.Show(Settings.Default.GlobalDir);
+        }
+
+        private bool DetectGlobalDir()
+        {
+            var uninstallKeyName = Environment.Is64BitOperatingSystem
+                ? @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+                : @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+
+            using (var uninstallKey = Registry.LocalMachine.OpenSubKey(uninstallKeyName))
+            {
+                if (uninstallKey == null) return false;
+
+                foreach (var subKeyName in uninstallKey.GetSubKeyNames())
+                {
+                    using var subKey = uninstallKey.OpenSubKey(subKeyName);
+
+                    var displayName = subKey?.GetValue("DisplayName");
+                    if (displayName == null || displayName.ToString() != "FINAL FANTASY XIV ONLINE") continue;
+
+                    var iconPath = subKey.GetValue("DisplayIcon");
+                    if (iconPath == null) continue;
+
+                    var globalDir =
+                        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(iconPath.ToString()),
+                            "../game"));
+                    if (!Directory.Exists(globalDir)) continue;
+                    if (!CheckRequiredFiles(globalDir)) continue;
+
+                    Settings.Default.GlobalDir = globalDir;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void CheckAndUpdateKoreanDir()
