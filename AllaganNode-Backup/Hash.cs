@@ -4,7 +4,7 @@ namespace AllaganNode
 {
     public static class Hash
     {
-        private static uint[] crcTable =
+        private static readonly uint[] crcTable =
         {
             0x00000000, 0x77073096, 0xEE0E612C, 0x990951BA, 0x076DC419, 0x706AF48F, 0xE963A535, 0x9E6495A3,
             0x0EDB8832, 0x79DCB8A4, 0xE0D5E91E, 0x97D2D988, 0x09B64C2B, 0x7EB17CBD, 0xE7B82D07, 0x90BF1D91,
@@ -42,18 +42,15 @@ namespace AllaganNode
 
         public static uint Compute(string str)
         {
-            uint hash = 0xffffffff;
-            byte[] bytes = Encoding.ASCII.GetBytes(str);
-            for (int i = 0; i < bytes.Length; i++)
+            var hash = 0xffffffff;
+            var bytes = Encoding.ASCII.GetBytes(str);
+            for (var i = 0; i < bytes.Length; i++)
             {
-                byte b = bytes[i];
+                var b = bytes[i];
 
-                if (b >= 0x41 && b <= 0x5a)
-                {
-                    b = (byte)(((uint)b) + 0x20);
-                }
+                if (b >= 0x41 && b <= 0x5a) b = (byte) ((uint) b + 0x20);
 
-                hash = (hash >> 8) ^ crcTable[(byte)(b ^ hash)];
+                hash = (hash >> 8) ^ crcTable[(byte) (b ^ hash)];
             }
 
             return hash;
@@ -61,19 +58,20 @@ namespace AllaganNode
 
         public static void Guess(uint hash)
         {
-            for (int i = 0; i < crcTable.Length; i++)
+            for (var i = 0; i < crcTable.Length; i++)
             {
-                uint oldHash = hash ^ crcTable[i];
-                uint candidate = oldHash << 8;
+                var oldHash = hash ^ crcTable[i];
+                var candidate = oldHash << 8;
 
-                while ((candidate >> 8) == oldHash)
+                while (candidate >> 8 == oldHash)
                 {
-                    uint examining = candidate;
-                    byte b = (byte)(examining ^ i);
+                    var examining = candidate;
+                    var b = (byte) (examining ^ i);
                     candidate++;
 
                     if (b > 0x7f || b < 0x0) continue;
-                    if (hash != ((examining >> 8) ^ crcTable[(byte)(b ^ examining)])) continue;
+
+                    if (hash != ((examining >> 8) ^ crcTable[(byte) (b ^ examining)])) continue;
                 }
             }
         }

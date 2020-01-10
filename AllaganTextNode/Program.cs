@@ -1,19 +1,16 @@
-﻿using IndexRepack;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml.Serialization;
+using IndexRepack;
 
 namespace AllaganNode
 {
-    enum ImageFormat
+    internal enum ImageFormat
     {
         Unknown = 0,
         A4R4G4B4 = 0x1440
@@ -24,34 +21,40 @@ namespace AllaganNode
         public Dictionary<string, byte[]> TestDictionary { get; set; }
     }
 
-    class Program
+    internal class Program
     {
-        static Dictionary<uint, Dictionary<uint, SqFile>> readIndex(string indexPath, string datPath)
-        {
-            Dictionary<uint, Dictionary<uint, SqFile>> sqFiles = new Dictionary<uint, Dictionary<uint, SqFile>>();
+        private static string previousLine;
 
-            using (FileStream fs = File.OpenRead(indexPath))
-            using (BinaryReader br = new BinaryReader(fs))
+        private static Dictionary<uint, Dictionary<uint, SqFile>> readIndex(string indexPath, string datPath)
+        {
+            var sqFiles = new Dictionary<uint, Dictionary<uint, SqFile>>();
+
+            using (var fs = File.OpenRead(indexPath))
+            using (var br = new BinaryReader(fs))
             {
                 br.BaseStream.Position = 0xc;
-                int headerOffset = br.ReadInt32();
+                var headerOffset = br.ReadInt32();
 
                 br.BaseStream.Position = headerOffset + 0x8;
-                int fileOffset = br.ReadInt32();
-                int fileCount = br.ReadInt32() / 0x10;
+                var fileOffset = br.ReadInt32();
+                var fileCount = br.ReadInt32() / 0x10;
 
                 br.BaseStream.Position = fileOffset;
-                for (int i = 0; i < fileCount; i++)
+                for (var i = 0; i < fileCount; i++)
                 {
-                    SqFile sqFile = new SqFile();
-                    sqFile.Key = br.ReadUInt32();
-                    sqFile.DirectoryKey = br.ReadUInt32();
-                    sqFile.WrappedOffset = br.ReadInt32();
-                    sqFile.DatPath = datPath;
+                    var sqFile = new SqFile
+                    {
+                        Key = br.ReadUInt32(),
+                        DirectoryKey = br.ReadUInt32(),
+                        WrappedOffset = br.ReadInt32(),
+                        DatPath = datPath
+                    };
 
                     br.ReadInt32();
 
-                    if (!sqFiles.ContainsKey(sqFile.DirectoryKey)) sqFiles.Add(sqFile.DirectoryKey, new Dictionary<uint, SqFile>());
+                    if (!sqFiles.ContainsKey(sqFile.DirectoryKey))
+                        sqFiles.Add(sqFile.DirectoryKey, new Dictionary<uint, SqFile>());
+
                     sqFiles[sqFile.DirectoryKey].Add(sqFile.Key, sqFile);
 
                     Report(string.Format("{0} / {1}: {2}", i, fileCount, sqFile.Key));
@@ -61,41 +64,43 @@ namespace AllaganNode
             return sqFiles;
         }
 
-        static unsafe void Main(string[] args)
+        private static void Main(string[] args)
         {
-            Console.WriteLine(string.Format("AllaganTextNode v{0}", Assembly.GetExecutingAssembly().GetName().Version.ToString()));
+            Console.WriteLine("AllaganTextNode v{0}", Assembly.GetExecutingAssembly().GetName().Version);
 
-            string baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string inputDir = Path.Combine(baseDir, "input");
-            string globalDir = Path.Combine(inputDir, "global");
-            string koreanDir = Path.Combine(inputDir, "korean");
+            var baseDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            var inputDir = Path.Combine(baseDir, "input");
+            var globalDir = Path.Combine(inputDir, "global");
+            var koreanDir = Path.Combine(inputDir, "korean");
 
-            string glIndexPath = Path.Combine(globalDir, "000000.win32.index");
-            string koIndexPath = Path.Combine(koreanDir, "000000.win32.index");
+            var glIndexPath = Path.Combine(globalDir, "000000.win32.index");
+            var koIndexPath = Path.Combine(koreanDir, "000000.win32.index");
 
-            string glDatPath = Path.Combine(globalDir, "000000.win32.dat0");
-            string koDatPath = Path.Combine(koreanDir, "000000.win32.dat0");
+            var glDatPath = Path.Combine(globalDir, "000000.win32.dat0");
+            var koDatPath = Path.Combine(koreanDir, "000000.win32.dat0");
 
-            string outputDir = Path.Combine(baseDir, "output");
+            var outputDir = Path.Combine(baseDir, "output");
             if (!Directory.Exists(outputDir)) Directory.CreateDirectory(outputDir);
 
-            string outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
+            var outputIndexPath = Path.Combine(outputDir, Path.GetFileName(glIndexPath));
             File.Copy(glIndexPath, outputIndexPath, true);
-            byte[] index = File.ReadAllBytes(outputIndexPath);
-            
-            IndexFile indexFile = new IndexFile();
+            var index = File.ReadAllBytes(outputIndexPath);
+
+            var indexFile = new IndexFile();
             indexFile.ReadData(index);
 
-            foreach (IndexDirectoryInfo directory in indexFile.DirectoryInfo)
+            foreach (var directory in indexFile.DirectoryInfo)
             {
                 if (directory.Key != Hash.Compute("common/font")) continue;
 
-                List<IndexFileInfo> files = directory.FileInfo.ToList();
-                IndexFileInfo font1 = files.First(f => f.Key == Hash.Compute("font1.tex"));
-                IndexFileInfo font8 = new IndexFileInfo();
-                font8.Key = Hash.Compute("font8.tex");
-                font8.DirectoryInfo = directory;
-                font8.WrappedOffset = font1.WrappedOffset;
+                var files = directory.FileInfo.ToList();
+                var font1 = files.First(f => f.Key == Hash.Compute("font1.tex"));
+                var font8 = new IndexFileInfo
+                {
+                    Key = Hash.Compute("font8.tex"),
+                    DirectoryInfo = directory,
+                    WrappedOffset = font1.WrappedOffset
+                };
                 files.Add(font8);
                 directory.FileInfo = files.ToArray();
             }
@@ -103,25 +108,25 @@ namespace AllaganNode
             index = indexFile.RepackData(index);
             File.WriteAllBytes(outputIndexPath, index);
 
-            Dictionary<uint, Dictionary<uint, SqFile>> glSqFiles = readIndex(outputIndexPath, glDatPath);
-            Dictionary<uint, Dictionary<uint, SqFile>> koSqFiles = readIndex(koIndexPath, koDatPath);
+            var glSqFiles = readIndex(outputIndexPath, glDatPath);
+            var koSqFiles = readIndex(koIndexPath, koDatPath);
 
-            byte[] origDat = File.ReadAllBytes(glDatPath);
+            var origDat = File.ReadAllBytes(glDatPath);
 
-            string outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
+            var outputNewDatPath = Path.Combine(outputDir, "000000.win32.dat1");
             //CreateNewDat(glDatPath, outputNewDatPath);
             File.Copy(koDatPath, outputNewDatPath, true);
 
-            SqFile glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
-            SqFile koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
+            var glFontTexFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("font8.tex")];
+            var koFontTexFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("font_krn_1.tex")];
 
             glFontTexFile.UpdateOffset(koFontTexFile.Offset, 1, index);
 
-            SqFile glMappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
-            SqFile koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("krnaxis_120.fdt")];
+            var glMappingFile = glSqFiles[Hash.Compute("common/font")][Hash.Compute("axis_12.fdt")];
+            var koMappingFile = koSqFiles[Hash.Compute("common/font")][Hash.Compute("krnaxis_120.fdt")];
 
-            byte[] glMappingBytes = glMappingFile.ReadData();
-            byte[] koMappingBytes = koMappingFile.ReadData();
+            var glMappingBytes = glMappingFile.ReadData();
+            var koMappingBytes = koMappingFile.ReadData();
 
             File.WriteAllBytes(Path.Combine(outputDir, "glMappingBytes"), glMappingBytes);
             File.WriteAllBytes(Path.Combine(outputDir, "koMappingBytes"), koMappingBytes);
@@ -135,68 +140,67 @@ namespace AllaganNode
             // global range 0x40~0x1d9af
             // korean range 0x40~0x309cf
 
-            Dictionary<string, byte[]> glRows = new Dictionary<string, byte[]>();
+            var glRows = new Dictionary<string, byte[]>();
 
             for (long i = 0x60; i <= 0x1d9c0; i += 0x10)
             {
-                byte[] row = new byte[0x10];
+                var row = new byte[0x10];
                 Array.Copy(glMappingBytes, i, row, 0, 0x10);
 
-                int j = 0;
+                var j = 0;
                 for (j = 0; j < row.Length; j++)
-                {
-                    if (row[j] == 0) break;
-                }
+                    if (row[j] == 0)
+                        break;
 
-                byte[] utf = new byte[j];
+                var utf = new byte[j];
                 Array.Copy(row, 0, utf, 0, j);
                 Array.Reverse(utf);
 
-                string key = Encoding.UTF8.GetString(utf);
+                var key = Encoding.UTF8.GetString(utf);
                 if (!glRows.ContainsKey(key)) glRows.Add(key, row);
             }
 
-            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "glRows"), false))
+            using (var sw = new StreamWriter(Path.Combine(outputDir, "glRows"), false))
             {
                 new XmlSerializer(typeof(string[])).Serialize(sw, glRows.Keys.ToArray());
             }
 
-            Dictionary<string, byte[]> koRows = new Dictionary<string, byte[]>();
-            Dictionary<string, byte[]> diffRows = new Dictionary<string, byte[]>();
+            var koRows = new Dictionary<string, byte[]>();
+            var diffRows = new Dictionary<string, byte[]>();
 
             for (long i = 0x60; i <= 0x309c0; i += 0x10)
             {
-                byte[] row = new byte[0x10];
+                var row = new byte[0x10];
                 Array.Copy(koMappingBytes, i, row, 0, 0x10);
 
-                int j = 0;
+                var j = 0;
                 for (j = 0; j < row.Length; j++)
-                {
-                    if (row[j] == 0) break;
-                }
+                    if (row[j] == 0)
+                        break;
 
-                byte[] utf = new byte[j];
+                var utf = new byte[j];
                 Array.Copy(row, 0, utf, 0, j);
                 Array.Reverse(utf);
 
-                string key = Encoding.UTF8.GetString(utf);
+                var key = Encoding.UTF8.GetString(utf);
                 if (!koRows.ContainsKey(key)) koRows.Add(key, row);
+
                 if (!glRows.ContainsKey(key)) diffRows.Add(key, row);
             }
 
-            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "koRows"), false))
+            using (var sw = new StreamWriter(Path.Combine(outputDir, "koRows"), false))
             {
                 new XmlSerializer(typeof(string[])).Serialize(sw, koRows.Keys.ToArray());
             }
 
-            using (StreamWriter sw = new StreamWriter(Path.Combine(outputDir, "diffRows"), false))
+            using (var sw = new StreamWriter(Path.Combine(outputDir, "diffRows"), false))
             {
                 new XmlSerializer(typeof(string[])).Serialize(sw, diffRows.Keys.ToArray());
             }
 
-            foreach (string key in diffRows.Keys)
+            foreach (var key in diffRows.Keys)
             {
-                byte[] modRow = new byte[0x10];
+                var modRow = new byte[0x10];
                 Array.Copy(diffRows[key], 0, modRow, 0, 0x10);
                 modRow[0x6] = 0x1;
                 modRow[0x7] = 0x0;
@@ -211,107 +215,106 @@ namespace AllaganNode
                 glRows.Add(key, modRow);
             }
 
-            string[] orderedKeys = glRows.Keys.OrderBy(s => {
-                byte[] b = Encoding.UTF8.GetBytes(s);
-                byte[] p = new byte[4];
+            var orderedKeys = glRows.Keys.OrderBy(s =>
+            {
+                var b = Encoding.UTF8.GetBytes(s);
+                var p = new byte[4];
                 Array.Copy(b, 0, p, 0, b.Length);
                 Array.Reverse(p);
                 return BitConverter.ToUInt32(p, 0);
             }).ToArray();
 
-            string newMappingPath = Path.Combine(outputDir, "newMapping");
+            var newMappingPath = Path.Combine(outputDir, "newMapping");
 
-            byte[] mappingHeader = new byte[0x60];
+            var mappingHeader = new byte[0x60];
             Array.Copy(glMappingBytes, 0, mappingHeader, 0, 0x60);
             File.WriteAllBytes(newMappingPath, mappingHeader);
 
-            using (FileStream fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
-            using (BinaryWriter bw = new BinaryWriter(fs))
+            using (var fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
+            using (var bw = new BinaryWriter(fs))
             {
-                foreach (string key in orderedKeys)
-                {
-                    bw.Write(glRows[key]);
-                }
+                foreach (var key in orderedKeys) bw.Write(glRows[key]);
             }
 
-            byte[] mappingTail = new byte[0x430];
+            var mappingTail = new byte[0x430];
             Array.Copy(glMappingBytes, 0x1d9d0, mappingTail, 0, 0x430);
 
-            using (FileStream fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
-            using (BinaryWriter bw = new BinaryWriter(fs))
+            using (var fs = new FileStream(newMappingPath, FileMode.Append, FileAccess.Write))
+            using (var bw = new BinaryWriter(fs))
             {
                 bw.Write(mappingTail);
             }
 
-            byte[] newMapping = File.ReadAllBytes(newMappingPath);
+            var newMapping = File.ReadAllBytes(newMappingPath);
             Array.Copy(BitConverter.GetBytes(newMapping.Length - 0x430), 0, newMapping, 0xc, 0x4);
-            Array.Copy(BitConverter.GetBytes((short)((newMapping.Length - 0x430 - 0x40) / 0x10)), 0, newMapping, 0x24, 0x2);
+            Array.Copy(BitConverter.GetBytes((short) ((newMapping.Length - 0x430 - 0x40) / 0x10)), 0, newMapping, 0x24,
+                0x2);
 
             File.WriteAllBytes(newMappingPath, newMapping);
 
-                /*
-                byte[] test = new byte[0x10];
-                Array.Copy(koMappingBytes, 0x3b40, test, 0, 0x10);
+            /*
+            byte[] test = new byte[0x10];
+            Array.Copy(koMappingBytes, 0x3b40, test, 0, 0x10);
 
-                byte[] test2 = new byte[3];
-                Array.Copy(test, 0, test2, 0, 3);
-                Array.Reverse(test2);
-                Console.WriteLine();
-                foreach (byte b in test2)
-                {
-                    Console.WriteLine(b.ToString());
-                }
-                Console.WriteLine();
-                Console.WriteLine(Encoding.UTF8.GetString(test2));
+            byte[] test2 = new byte[3];
+            Array.Copy(test, 0, test2, 0, 3);
+            Array.Reverse(test2);
+            Console.WriteLine();
+            foreach (byte b in test2)
+            {
+                Console.WriteLine(b.ToString());
+            }
+            Console.WriteLine();
+            Console.WriteLine(Encoding.UTF8.GetString(test2));
 
-                byte[] test3 = Encoding.UTF8.GetBytes("가");
+            byte[] test3 = Encoding.UTF8.GetBytes("가");
 
-                foreach (byte b in test3)
-                {
-                    Console.WriteLine(b.ToString());
-                }
+            foreach (byte b in test3)
+            {
+                Console.WriteLine(b.ToString());
+            }
 
-                Console.WriteLine(Encoding.UTF8.GetString(test3));
-                Console.ReadLine();*/
+            Console.WriteLine(Encoding.UTF8.GetString(test3));
+            Console.ReadLine();*/
 
-                //test[0x154] = 0x31;
-                //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
-                //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
-                //test[0x15a] <-- when 0x159 goes over 0x3 this changes
-                //test[0x15b] <-- this also goes upto 0x3
-                //test[0x15c] = 0x6; -> width (on texture)
-                //test[0x15d] = 0x2; -> height (on texture)
-                // c~f looks like size-related thing.
+            //test[0x154] = 0x31;
+            //test[0x158] = 0x60; <--- this seems to control coordinate? goes from 0x0~0xff
+            //test[0x159] <--- seems to increment with 158. when 0x158 goes over 0xff this gets incremented by 0x1
+            //test[0x15a] <-- when 0x159 goes over 0x3 this changes
+            //test[0x15b] <-- this also goes upto 0x3
+            //test[0x15c] = 0x6; -> width (on texture)
+            //test[0x15d] = 0x2; -> height (on texture)
+            // c~f looks like size-related thing.
 
-                // in the fdt header area there seems to be something that controls how the texture is loaded...
-                // compare axis_12.fdt with krnaxis_120.fdt
+            // in the fdt header area there seems to be something that controls how the texture is loaded...
+            // compare axis_12.fdt with krnaxis_120.fdt
 
-                // 0x0~0x3 -> unicode, big endian (flipped)
+            // 0x0~0x3 -> unicode, big endian (flipped)
 
-                // code page?
-                // -> 0x0~0x3 points to tex1
-                // -> 0x4~0x7 points to tex2 (coordinate is the same)
-                // -> 0x8 points to tex3 if tex3 is present. Otherwise went back to tex1.
-                // -> 0x9 is empty (maybe original tex3)
-                // seems 100 increase = 0x4 increase -> tex increment
-                // 0     100   1000  1100
-                // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
-                // font1 font2 font3 font4 font5 font6 font7
-                newMapping[0x156] = 0x1b;
-                // coordinate
-                newMapping[0x158] = 0x0;
-                newMapping[0x159] = 0x0;
-                newMapping[0x15a] = 0x0;
-                newMapping[0x15b] = 0x0;
-                //size
-                newMapping[0x15c] = 0xff;
-                newMapping[0x15d] = 0xff;
+            // code page?
+            // -> 0x0~0x3 points to tex1
+            // -> 0x4~0x7 points to tex2 (coordinate is the same)
+            // -> 0x8 points to tex3 if tex3 is present. Otherwise went back to tex1.
+            // -> 0x9 is empty (maybe original tex3)
+            // seems 100 increase = 0x4 increase -> tex increment
+            // 0     100   1000  1100
+            // 0x0   0x4   0x8   0xc   0x10  0x14  0x18
+            // font1 font2 font3 font4 font5 font6 font7
+            newMapping[0x156] = 0x1b;
+            // coordinate
+            newMapping[0x158] = 0x0;
+            newMapping[0x159] = 0x0;
+            newMapping[0x15a] = 0x0;
+            newMapping[0x15b] = 0x0;
+            //size
+            newMapping[0x15c] = 0xff;
+            newMapping[0x15d] = 0xff;
 
-            byte[] repackedBuffer = glMappingFile.RepackData(origDat, newMapping);
-            glMappingFile.UpdateOffset((int)new FileInfo(outputNewDatPath).Length, 1, index);
+            var repackedBuffer = glMappingFile.RepackData(origDat, newMapping);
+            glMappingFile.UpdateOffset((int) new FileInfo(outputNewDatPath).Length, 1, index);
 
-            using (FileStream fs = new FileStream(outputNewDatPath, FileMode.Append, FileAccess.Write))
-            using (BinaryWriter bw = new BinaryWriter(fs))
+            using (var fs = new FileStream(outputNewDatPath, FileMode.Append, FileAccess.Write))
+            using (var bw = new BinaryWriter(fs))
             {
                 bw.Write(repackedBuffer);
             }
@@ -442,13 +445,13 @@ namespace AllaganNode
             */
         }
 
-        private static string previousLine;
-        static void Report(string line)
+        private static void Report(string line)
         {
             if (!string.IsNullOrEmpty(previousLine))
             {
-                string cleanLine = string.Empty;
+                var cleanLine = string.Empty;
                 while (cleanLine.Length != previousLine.Length) cleanLine += " ";
+
                 Console.Write(cleanLine + "\r");
             }
 
@@ -457,28 +460,28 @@ namespace AllaganNode
         }
 
         // create a new dat file and copy header from existing dat.
-        static void CreateNewDat(string origDatPath, string newDatPath)
+        private static void CreateNewDat(string origDatPath, string newDatPath)
         {
-            byte[] dat = File.ReadAllBytes(origDatPath);
-            byte[] header = new byte[0x800];
+            var dat = File.ReadAllBytes(origDatPath);
+            var header = new byte[0x800];
             Array.Copy(dat, 0, header, 0, 0x800);
             Array.Copy(BitConverter.GetBytes(0x2), 0, header, 0x400 + 0x10, 0x4);
             File.WriteAllBytes(newDatPath, header);
         }
 
         // update sha1 hashes with appended data.
-        static void UpdateDatHash(string datPath)
+        private static void UpdateDatHash(string datPath)
         {
-            byte[] dat = File.ReadAllBytes(datPath);
+            var dat = File.ReadAllBytes(datPath);
 
-            byte[] data = new byte[dat.Length - 0x800];
+            var data = new byte[dat.Length - 0x800];
             Array.Copy(dat, 0x800, data, 0, data.Length);
-            byte[] sha1Data = new SHA1Managed().ComputeHash(data);
+            var sha1Data = new SHA1Managed().ComputeHash(data);
             Array.Copy(sha1Data, 0, dat, 0x400 + 0x20, sha1Data.Length);
 
-            byte[] header = new byte[0x3c0];
+            var header = new byte[0x3c0];
             Array.Copy(dat, 0x400, header, 0, 0x3c0);
-            byte[] sha1Header = new SHA1Managed().ComputeHash(header);
+            var sha1Header = new SHA1Managed().ComputeHash(header);
             Array.Copy(sha1Header, 0, dat, 0x400 + 0x3c0, sha1Header.Length);
 
             File.WriteAllBytes(datPath, dat);

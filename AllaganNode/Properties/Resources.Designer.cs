@@ -61,12 +61,39 @@ namespace AllaganNode.Properties {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Please select a language:.
+        /// </summary>
+        internal static string LanguageSelector_LanguageSelector_SelectLanguage {
+            get {
+                return ResourceManager.GetString("LanguageSelector_LanguageSelector_SelectLanguage", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized resource of type System.Byte[].
         /// </summary>
         internal static byte[] Logo {
             get {
                 object obj = ResourceManager.GetObject("Logo", resourceCulture);
                 return ((byte[])(obj));
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Do you want to automatically detect FFXIV (Global) client?.
+        /// </summary>
+        internal static string MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion {
+            get {
+                return ResourceManager.GetString("MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Allagan Node.
+        /// </summary>
+        internal static string ProgramTitle {
+            get {
+                return ResourceManager.GetString("ProgramTitle", resourceCulture);
             }
         }
         
