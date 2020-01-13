@@ -136,7 +136,7 @@
     <!-- ReSharper disable once ResxNotResolved -->
     <value>..\Resources\SplashScreen.png;System.Byte[], mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
-  <data name="MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion" xml:space="preserve">
+  <data name="MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientQuestion" xml:space="preserve">
     <value>Do you want to automatically detect FFXIV (Global) client?</value>
   </data>
   <data name="ProgramTitle" xml:space="preserve">
@@ -144,5 +144,11 @@
   </data>
   <data name="LanguageSelector_LanguageSelector_SelectLanguage" xml:space="preserve">
     <value>Please select a language:</value>
+  </data>
+  <data name="MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientVerify" xml:space="preserve">
+    <value>FFXIV (Global) client detected in following directory: "{0}". Is this correct?</value>
+  </data>
+  <data name="MainWindow_CheckAndUpdateGlobalDir_GlobalClientManualSelectInstruction" xml:space="preserve">
+    <value>Please manually select "ffxiv_dx11.exe" file from where FFXIV (Global) client is installed.</value>
   </data>
 </root>

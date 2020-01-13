@@ -52,16 +52,40 @@ namespace AllaganNode
 
         private void CheckAndUpdateGlobalDir()
         {
-            if (!string.IsNullOrEmpty(Settings.Default.GlobalDir))
-                if (Directory.Exists(Settings.Default.GlobalDir))
-                    if (CheckRequiredFiles(Settings.Default.GlobalDir))
-                        return;
+            if (!string.IsNullOrEmpty(Settings.Default.GlobalDir) && Directory.Exists(Settings.Default.GlobalDir) &&
+                CheckRequiredFiles(Settings.Default.GlobalDir))
+                return;
 
-            if (MessageBox.Show(Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion,
-                    Properties.Resources.ProgramTitle, MessageBoxButton.YesNo, MessageBoxImage.Question) ==
-                MessageBoxResult.Yes)
-                if (DetectGlobalDir())
-                    MessageBox.Show(Settings.Default.GlobalDir);
+            if (MessageBox.Show(Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientQuestion,
+                    Properties.Resources.ProgramTitle, MessageBoxButton.YesNo, MessageBoxImage.Question) !=
+                MessageBoxResult.Yes || !DetectGlobalDir() || MessageBox.Show(
+                    string.Format(Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientVerify,
+                        Settings.Default.GlobalDir), Properties.Resources.ProgramTitle, MessageBoxButton.YesNo,
+                    MessageBoxImage.Question) != MessageBoxResult.Yes)
+            {
+                Settings.Default.GlobalDir = string.Empty;
+                var openFileDialog = new OpenFileDialog
+                {
+                    CheckFileExists = true,
+                    DefaultExt = "exe",
+                    Filter = "ffxiv_dx11.exe|ffxiv_dx11.exe",
+                    Multiselect = false,
+                    Title = Properties.Resources.ProgramTitle
+                };
+
+                while (!Directory.Exists(Settings.Default.GlobalDir) || !CheckRequiredFiles(Settings.Default.GlobalDir))
+                {
+                    MessageBox.Show(
+                        Properties.Resources.MainWindow_CheckAndUpdateGlobalDir_GlobalClientManualSelectInstruction,
+                        Properties.Resources.ProgramTitle, MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+
+                    if (openFileDialog.ShowDialog() == true)
+                        Settings.Default.GlobalDir = Path.GetDirectoryName(openFileDialog.FileName);
+                }
+            }
+
+            Settings.Default.Save();
         }
 
         private bool DetectGlobalDir()

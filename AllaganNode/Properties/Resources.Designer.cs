@@ -82,9 +82,27 @@ namespace AllaganNode.Properties {
         /// <summary>
         ///   Looks up a localized string similar to Do you want to automatically detect FFXIV (Global) client?.
         /// </summary>
-        internal static string MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion {
+        internal static string MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientQuestion {
             get {
-                return ResourceManager.GetString("MainWindow_CheckAndUpdateGlobalDir_AutoDetectQuestion", resourceCulture);
+                return ResourceManager.GetString("MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientQuestion", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to FFXIV (Global) client detected in following directory: &quot;{0}&quot;. Is this correct?.
+        /// </summary>
+        internal static string MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientVerify {
+            get {
+                return ResourceManager.GetString("MainWindow_CheckAndUpdateGlobalDir_AutoDetectGlobalClientVerify", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to ffxiv_dx11.exeabcabcabc.
+        /// </summary>
+        internal static string MainWindow_CheckAndUpdateGlobalDir_GlobalClientManualSelectInstruction {
+            get {
+                return ResourceManager.GetString("MainWindow_CheckAndUpdateGlobalDir_GlobalClientManualSelectInstruction", resourceCulture);
             }
         }
         
